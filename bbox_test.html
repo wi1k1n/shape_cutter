@@ -1,0 +1,305 @@
+<DOCTYPE html>
+<html>
+<head>
+	<meta charset="utf-8">
+	<title>Bezier</title>
+	<style type="text/css">
+		html, body {
+			width: 100%;
+			height: 100%;
+			margin: 0;
+		}
+	</style>
+</head>
+<body>
+<div id="result">
+</div>
+<script type="text/javascript">
+	const ROTATE_SPEED = 0.05;
+	const SIMULATE_ANGLE_STEP = 0.01;
+	const SHAPE_SCALE = 100;
+
+	// must be defined in a sequential order!
+	// const PTS = [[0, 0], [134.75, 0], [134.75, 269.5], [0, 217.69]];
+	// const PTS = [[0, 0], [-1, 0], [-2, 1], [-3, 0], [-4, 2], [0, 2]].map(x => scale(SHAPE_SCALE, x));
+	const PTS = [[0, 0], [-1, 0], [-2, 1], [-3, 0], [-5, -1], [-6, 0], [-5, 1], [-4, 0], [-3.5, 0.2], [-5, 2], [0, 2]].map(x => scale(SHAPE_SCALE, x));
+	let pts = PTS.slice();
+
+	const cnv = document.createElement('canvas');
+	cnv.width = window.innerWidth;
+	cnv.height = window.innerHeight;
+	document.getElementById('result').appendChild(cnv);
+	const ctx = cnv.getContext('2d');
+	ctx.translate(0, cnv.height);
+	ctx.scale(1, -1);
+
+	let centerMass = getShapeCM(pts);
+	let CNV_CENTER = [cnv.width / 2, cnv.height / 2];
+
+	console.log('Shape: ', pts);
+
+	// interactBestFit();
+	redraw();
+
+
+
+	document.addEventListener('wheel', (e) => {
+		rotateShape(pts, Math.sign(event.deltaY) * ROTATE_SPEED);
+		redraw();
+		let [left, right, top, bottom] = getBBOX(pts);
+		console.log('Max', Math.max(right - left, bottom - top).toFixed(2), '(' + (right - left).toFixed(2) + '; ' + (bottom - top).toFixed(2) + ')');
+	});
+	document.addEventListener('keydown', function(e) { });
+	document.addEventListener('keyup', function(e) {
+		let key = e.key.toLowerCase();
+		if (key == 'c') {
+			let shape = pts.slice();
+			calculateBestCut(shape);
+		} else if (key == 'b') {
+			interactBestFit();
+		} else if (key == 'r') {
+			pts = PTS.slice();
+			rotateShape(pts, 0);
+			redraw();
+		} else if (key == 'g') {
+			const sh = generateShape(3);
+			if (sh) {
+				pts = sh;
+				redraw();
+			}
+		}
+	});
+	document.addEventListener('mousemove', function(e) { e = e || window.event; });
+
+	function interactBestFit() {
+		let [bestAng, bestVal] = simulateShapeFit(pts);
+		console.log('Best rotation: ' + (bestAng * 180 / Math.PI).toFixed(1) + ' with value: ' + bestVal.toFixed(2));
+		rotateShape(pts, bestAng);
+		redraw();
+	}
+
+	function generateShape(vN, radius=500) {
+		// http://www.cccg.ca/proceedings/1996/cccg1996_0007.pdf
+		// https://www.youtube.com/watch?v=QLKBQU05NSk
+		return null;
+	}
+
+	function cutShapeWithLine(shape, line) {
+		let shapeClosed = shape.slice();
+		shapeClosed.push(shape[0]);
+
+		// intersect cutting line with all the edges
+		let intersections = [];
+		let intsProjs = []; // intersection projections
+		const v0 = subtract(line[1], line[0]);
+		for (let i = 0; i < shapeClosed.length - 1; i++) {
+			const edge = [shapeClosed[i], shapeClosed[i + 1]];
+			const [p, onEdge,] = intersectLines(edge[0], edge[1], line[0], line[1]);
+			if (onEdge) {
+				intersections.push({p: p, edge: i});
+				intsProjs.push(dot(v0, subtract(p, line[0])));
+			}
+		}
+		// sort intersections along the line
+		intersections = intersections.map((x, i) => [x, i]).sort((f, s) => intsProjs[f[1]] > intsProjs[s[1]] ? 1 : (intsProjs[f[1]] < intsProjs[s[1]] ? -1 : 0)).map(x => x[0]);
+
+		// follow edges
+		let shapes = [[]];
+		const intersectionIndices = intersections.map(x => x.edge);
+		let curInd = 0;
+		for (let i = 0; i < shapeClosed.length - 1; i++) {
+			const edge = [shape[i], shape[i + 1]];
+			// add first point of current edge
+			// 'new' is the one, created out of intersection, index of point on line ordered along the line is used in this case
+			shapes[curInd].push({p: edge[0], i: i, new: false});
+			const intInd = intersectionIndices.findIndex(x => x == i);
+			if (intInd > -1) { // current edge is intersected
+				const intersection = intersections[intInd];
+
+				// add intersection point to current shape
+				shapes[curInd].push({p: intersection.p, i: intInd, new: true});
+				
+				const iIndsOnlyNews = shapes[curInd].filter(x => x.new);
+				if (iIndsOnlyNews.length < 2 // we've just started
+					|| Math.abs(iIndsOnlyNews.at(0).i - iIndsOnlyNews.at(-1).i) > 1 // points on line r not adjacent
+					|| Math.min(iIndsOnlyNews.at(0).i, iIndsOnlyNews.at(-1).i) % 2) { // interval on line is ouside of main shape
+					// step into a new shape
+					curInd++;
+					if (curInd >= shapes.length)
+						shapes.push([]);
+					shapes[curInd].push({p: intersection.p, i: intInd, new: true});
+				} else {
+					// step out of current shape
+					curInd--;
+					shapes[curInd].push({p: intersection.p, i: intInd, new: true});
+				}
+			}
+		}
+
+		return shapes.map(sh => sh.map(x => x.p));
+	}
+
+	function calculateBestCut(shape) {
+		// first define cutting line
+		const [left, right, top, bottom] = getBBOX(shape);
+		// const p0 = [Math.random() * (right - left) + left, Math.random() * (bottom - top) + top];
+		const p0 = scale(SHAPE_SCALE, [1, 0.5]);
+		const ang0 = Math.random() * Math.PI;
+		const v0 = [Math.cos(ang0), Math.sin(ang0)];
+		// const p1 = [p0[0] + v0[0], p0[1] + v0[1]];
+		const p1 = scale(SHAPE_SCALE, [-7, 0.5]);
+
+		ctx.save();
+		ctx.translate(CNV_CENTER[0] - centerMass[0], CNV_CENTER[1] - centerMass[1]);
+		drawLine(p0, p1, 'blue');
+		ctx.restore();
+
+		shapes = cutShapeWithLine(shape, [p0, p1]);
+
+		console.log(shapes);
+		shapes.forEach(sh => drawShape(sh, [getRandomColor(), 5], false));
+	}
+
+	function simulateShapeFit(shape) {
+		let shapeClone = shape.slice();
+		// Test all rotations
+		let bestFitAngle = 0, bestFitVal = 1e10;
+		for (let i = 0; i < Math.PI; i += SIMULATE_ANGLE_STEP) {
+			let [left, right, top, bottom] = getBBOX(shapeClone);
+			if (Math.max(right - left, bottom - top) < bestFitVal) {
+				bestFitVal = Math.max(right - left, bottom - top);
+				bestFitAngle = i;
+			}
+			rotateShape(shapeClone, SIMULATE_ANGLE_STEP, true);
+		}
+		return [bestFitAngle, bestFitVal];
+	}
+
+	function rotateShape(shape, ang, noCMCalc = false) {
+		let s = Math.sin(ang);
+		let c = Math.cos(ang);
+
+		for (let i = 0; i < shape.length; i++) {
+			let x = shape[i][0], y = shape[i][1];
+			shape[i] = [x * c - y * s, x * s + y * c];
+		}
+
+		if (!noCMCalc)
+			centerMass = getShapeCM(shape);
+	}
+
+	function redraw() {
+		ctx.clearRect(0, 0, cnv.width, cnv.height);
+
+		drawShape(pts);
+	}
+
+	function drawLine(from, to, style, width) {
+		ctx.save();
+
+		ctx.beginPath();
+		ctx.moveTo(from[0], from[1]);
+		ctx.lineTo(to[0], to[1]);
+		if (style)
+			ctx.strokeStyle = style;
+		if (width)
+			ctx.lineWidth = width;
+		ctx.stroke()
+
+		ctx.restore();
+	}
+	function drawShape(shape, shapeStyle=['lightgray', 1], withBBOX=true, bboxStyle=['red', 1]) {
+		ctx.save();
+		ctx.translate(CNV_CENTER[0] - centerMass[0], CNV_CENTER[1] - centerMass[1]);
+		// Draw points outline
+		if (!shape.includes(undefined)) {
+			ctx.beginPath();
+			ctx.moveTo(shape[0][0], shape[0][1]);
+			for (let i = 1; i < shape.length; ++i)
+				ctx.lineTo(shape[i][0], shape[i][1]);
+			ctx.lineTo(shape[0][0], shape[0][1]);
+			ctx.strokeStyle = shapeStyle[0];
+			ctx.lineWidth = shapeStyle[1];
+			ctx.stroke();
+		}
+		// Draw bbox
+		if (withBBOX) {
+			let [left, right, top, bottom] = getBBOX(shape);
+			drawLine([left, top], [left, bottom], bboxStyle[0], bboxStyle[1]);
+			drawLine([left, bottom], [right, bottom], bboxStyle[0], bboxStyle[1]);
+			drawLine([right, bottom], [right, top], bboxStyle[0], bboxStyle[1]);
+			drawLine([right, top], [left, top], bboxStyle[0], bboxStyle[1]);
+		}
+
+		ctx.restore();
+	}
+
+	function intersectLines(a1, a2, b1, b2) {
+		// intersect line a with line b; a1, a2 - points on line a; b1, b2 - points on line b
+		// returns point of intersection and booleans saying if intersection point lies inside of provided intervals
+		const denom = (b2[1] - b1[1]) * (a2[0] - a1[0]) - (b2[0] - b1[0]) * (a2[1] - a1[1]);
+		if (Math.abs(denom) < 1e-5) {
+			return [null, false, false];
+		}
+		const ua = ((b2[0] - b1[0]) * (a1[1] - b1[1]) - (b2[1] - b1[1]) * (a1[0] - b1[0])) / denom;
+		const ub = ((a2[0] - a1[0]) * (a1[1] - b1[1]) - (a2[1] - a1[1]) * (a1[0] - b1[0])) / denom;
+		return [[a1[0] + ua * (a2[0] - a1[0]), a1[1] + ua * (a2[1] - a1[1])],
+				ua >= 0 && ua <= 1,
+				ub >= 0 && ub <= 1];
+	}
+	
+	function dot(v1, v2) {
+		return v1[0] * v2[0] + v1[1] * v2[1];
+	}
+	function cross(v1, v2) {
+		return [0, 0, v1[0] * v2[1] - v1[1] * v2[0]];
+	}
+	function add(p1, p2) {
+		return [p1[0] + p2[0], p1[1] + p2[1]];
+	}
+	function subtract(p1, p2) {
+		return add(p1, negate(p2));
+	}
+	function multiply(p1, p2) {
+		return [p1[0] * p2[0], p1[1] * p2[1]];
+	}
+	function scale(v, p) {
+		return [v * p[0], v * p[1]];
+	}
+	function divide(p1, p2) {
+		return [p1[0] / p2[0], p1[1] / p2[1]];
+	}
+	function negate(p) {
+		return [-p[0], -p[1]];
+	}
+	function norm(v) {
+		return Math.sqrt(v[0] * v[0] + v[1] * v[1]);
+	}
+	function norm2(v) {
+		return v[0] * v[0] + v[1] * v[1];
+	}
+	function dst(p1, p2) {
+		return norm(subtract(p2, p1));
+	}
+	function dst2(p1, p2) {
+		return norm2(subtract(p2, p1));
+	}
+
+	function getRandomColor() {
+		const randomColor = Math.floor(Math.random()*16777215).toString(16);
+		return '#' + randomColor;
+	}
+	function getBBOX(shape) {
+		let left = Math.min.apply(null, shape.map(x => x[0]));
+		let right = Math.max.apply(null, shape.map(x => x[0]));
+		let top = Math.min.apply(null, shape.map(x => x[1]));
+		let bottom = Math.max.apply(null, shape.map(x => x[1]));
+		return [left, right, top, bottom];
+	}
+	function getShapeCM(shape) {
+		return [shape.reduce((p, c) => p + c[0], 0) / shape.length,
+				shape.reduce((p, c) => p + c[1], 0) / shape.length];
+	}
+</script>
+</body>
+</html>
