@@ -60,9 +60,13 @@
 		} else if (key == 'b') {
 			interactBestFit();
 		} else if (key == 'r') {
-			pts = PTS.slice();
-			rotateShape(pts, 0);
-			redraw();
+			if (e.shiftKey) { // Shift+R
+				redraw();
+			} else { // R
+				pts = PTS.slice();
+				rotateShape(pts, 0);
+				redraw();
+			}
 		} else if (key == 'g') {
 			const shape = generateShape(10);
 			centerMass = getShapeCM(shape);
@@ -165,17 +169,11 @@
 				const iIndsOnlyNews = shapes[curInd].filter(x => x.new);
 				if (iIndsOnlyNews.length < 2 // we've just started
 					|| Math.abs(iIndsOnlyNews.at(0).i - iIndsOnlyNews.at(-1).i) > 1 // points on line r not adjacent
-					|| Math.min(iIndsOnlyNews.at(0).i, iIndsOnlyNews.at(-1).i) % 2) { // interval on line is ouside of main shape
-					// step into a new shape
-					curInd++;
-					if (curInd >= shapes.length)
-						shapes.push([]);
-					shapes[curInd].push({p: intersection.p, i: intInd, new: true});
-				} else {
-					// step out of current shape
-					curInd--;
-					shapes[curInd].push({p: intersection.p, i: intInd, new: true});
-				}
+					|| Math.min(iIndsOnlyNews.at(0).i, iIndsOnlyNews.at(-1).i) % 2) // interval on line is ouside of main shape
+					shapes.splice(++curInd, 0, []); // step into a new shape
+				else
+					curInd--; // step out of current shape
+				shapes[curInd].push({p: intersection.p, i: intInd, new: true});
 			}
 		}
 
@@ -311,8 +309,11 @@
 	function dot(v1, v2) {
 		return v1[0] * v2[0] + v1[1] * v2[1];
 	}
-	function cross(v1, v2) {
+	function cross2d(v1, v2) {
 		return [0, 0, v1[0] * v2[1] - v1[1] * v2[0]];
+	}
+	function cross(v1, v2) {
+		return [v1[1] * v2[2] - v1[2] * v2[1], v1[2] * v2[0] - v1[0] * v2[2], v1[0] * v2[1] - v2[1] * v2[0]];
 	}
 	function add(p1, p2) {
 		return [p1[0] + p2[0], p1[1] + p2[1]];
@@ -337,6 +338,10 @@
 	}
 	function norm2(v) {
 		return v[0] * v[0] + v[1] * v[1];
+	}
+	function normalize(v) {
+		const n = norm(v);
+		return scale(1. / n, v);
 	}
 	function dst(p1, p2) {
 		return norm(subtract(p2, p1));
