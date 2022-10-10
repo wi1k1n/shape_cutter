@@ -15,9 +15,11 @@
 <div id="result">
 </div>
 <script type="text/javascript">
+	const STYLE_SHAPE = {c: 'lightgray', w: 1, t: 'connected'}; // t: connected/points
 	const ROTATE_SPEED = 0.05;
 	const SIMULATE_ANGLE_STEP = 0.01;
 	const SHAPE_SCALE = 100;
+	const EPS = 1e-5;
 
 	// must be defined in a sequential order!
 	// const PTS = [[0, 0], [134.75, 0], [134.75, 269.5], [0, 217.69]];
@@ -62,11 +64,10 @@
 			rotateShape(pts, 0);
 			redraw();
 		} else if (key == 'g') {
-			const sh = generateShape(3);
-			if (sh) {
-				pts = sh;
-				redraw();
-			}
+			const shape = generateShape(10);
+			centerMass = getShapeCM(shape);
+			pts = shape;
+			redraw();
 		}
 	});
 	document.addEventListener('mousemove', function(e) { e = e || window.event; });
@@ -78,10 +79,52 @@
 		redraw();
 	}
 
-	function generateShape(vN, radius=500) {
+	function generateShape(vN, w=500, h=500) {
+		// https://gist.github.com/Azeirah/75d44a6803b88e37ea8703a040e89353
+		// https://stackoverflow.com/a/20623817
+		// https://stackoverflow.com/a/64459159
 		// http://www.cccg.ca/proceedings/1996/cccg1996_0007.pdf
 		// https://www.youtube.com/watch?v=QLKBQU05NSk
-		return null;
+
+		// first generate random points
+		let shape = [];
+		for (let i = 0; i < vN; ++i) {
+			shape.push([Math.random() * w - w / 2, Math.random() * h - h / 2]);
+		}
+
+		// get line from left-most to right-most points
+		const getLeftRightMostPoints = function(shape) {
+			let lm = shape[0], rm = shape[0];
+			for (let i = 1; i < shape.length; ++i) {
+				const p = shape[i];
+				if (p[0] < lm[0] || (Math.abs(lm[0] - p[0]) < EPS && p[1] < lm[1]))
+					lm = p;
+				if (p[0] > rm[0] || (Math.abs(rm[0] - p[0]) < EPS && p[1] < rm[1]))
+					rm = p;
+			}
+			return [lm, rm];
+		};
+		const [lm, rm] = getLeftRightMostPoints(shape);
+		const line = [lm, rm];
+
+		// order points for below/on/above the line
+		let A = [], B = [], C = [];
+		for (let i = 0; i < shape.length; ++i) {
+			const p = shape[i];
+			const sign = isPointAboveTheLine(p, line);
+			(sign < 0 ? A : (sign > 0 ? B : C)).push(p);
+		}
+
+		// sort points and merge the arrays
+		let AC = A.concat(C);
+		const getSortXFunc = (m) => {
+			return (f, s) => {
+				return m * (f[0] - s[0]);
+			};
+		};
+		AC = AC.sort(getSortXFunc(1));
+		B = B.sort(getSortXFunc(-1));
+		return AC.concat(B);
 	}
 
 	function cutShapeWithLine(shape, line) {
@@ -157,13 +200,13 @@
 		shapes = cutShapeWithLine(shape, [p0, p1]);
 
 		console.log(shapes);
-		shapes.forEach(sh => drawShape(sh, [getRandomColor(), 5], false));
+		shapes.forEach(sh => drawShape(sh, {c: getRandomColor(), w: 5, t: 'connected'}, false));
 	}
 
 	function simulateShapeFit(shape) {
 		let shapeClone = shape.slice();
 		// Test all rotations
-		let bestFitAngle = 0, bestFitVal = 1e10;
+		let bestFitAngle = 0, bestFitVal = Number.MAX_VALUE;
 		for (let i = 0; i < Math.PI; i += SIMULATE_ANGLE_STEP) {
 			let [left, right, top, bottom] = getBBOX(shapeClone);
 			if (Math.max(right - left, bottom - top) < bestFitVal) {
@@ -191,7 +234,11 @@
 	function redraw() {
 		ctx.clearRect(0, 0, cnv.width, cnv.height);
 
-		drawShape(pts);
+		drawShape(pts, STYLE_SHAPE); // shape
+		const [l, r, t, b] = getBBOX(pts);
+		drawShape([[l, t], [l, b], [r, b], [r, t]], {c: 'red', w: 1, t: 'connected'}); // bbox
+		const PTS_STYLE = {c: 'gradient', w: 5, t: 'points'};
+		drawPolygon(pts, PTS_STYLE);
 	}
 
 	function drawLine(from, to, style, width) {
@@ -208,29 +255,37 @@
 
 		ctx.restore();
 	}
-	function drawShape(shape, shapeStyle=['lightgray', 1], withBBOX=true, bboxStyle=['red', 1]) {
+	function drawShape(shape, style=STYLE_SHAPE) {
+		return drawPolygon(shape.concat([shape[0]]), style);
+	}
+	function drawPolygon(shape, style=STYLE_SHAPE) {
+		if (shape.length < 1 || shape.includes(undefined))
+			return;
 		ctx.save();
 		ctx.translate(CNV_CENTER[0] - centerMass[0], CNV_CENTER[1] - centerMass[1]);
-		// Draw points outline
-		if (!shape.includes(undefined)) {
-			ctx.beginPath();
-			ctx.moveTo(shape[0][0], shape[0][1]);
-			for (let i = 1; i < shape.length; ++i)
-				ctx.lineTo(shape[i][0], shape[i][1]);
-			ctx.lineTo(shape[0][0], shape[0][1]);
-			ctx.strokeStyle = shapeStyle[0];
-			ctx.lineWidth = shapeStyle[1];
+		let clr = Array(shape.length).fill(style.c);
+		if (style.c == 'gradient') {
+			for (let i = 0; i < shape.length; ++i) {
+				clr[i] = 'hsl(' + (i * 255 / shape.length) + ',100%,50%)';
+			}
+		}
+		if (style.t == 'connected') {
+			ctx.lineWidth = style.w;
+			for (let i = 0; i < shape.length - 1; ++i) {
+				ctx.beginPath();
+				ctx.moveTo(shape[i][0], shape[i][1]);
+				ctx.lineTo(shape[i + 1][0], shape[i + 1][1]);
+				ctx.strokeStyle = clr[i];
 			ctx.stroke();
+			}
+		} else {
+			for (let i = 0; i < shape.length; ++i) {
+				ctx.beginPath();
+				ctx.arc(shape[i][0], shape[i][1], style.w, 0, 2 * Math.PI);
+				ctx.fillStyle = clr[i];
+				ctx.fill();
+			}
 		}
-		// Draw bbox
-		if (withBBOX) {
-			let [left, right, top, bottom] = getBBOX(shape);
-			drawLine([left, top], [left, bottom], bboxStyle[0], bboxStyle[1]);
-			drawLine([left, bottom], [right, bottom], bboxStyle[0], bboxStyle[1]);
-			drawLine([right, bottom], [right, top], bboxStyle[0], bboxStyle[1]);
-			drawLine([right, top], [left, top], bboxStyle[0], bboxStyle[1]);
-		}
-
 		ctx.restore();
 	}
 
@@ -238,7 +293,7 @@
 		// intersect line a with line b; a1, a2 - points on line a; b1, b2 - points on line b
 		// returns point of intersection and booleans saying if intersection point lies inside of provided intervals
 		const denom = (b2[1] - b1[1]) * (a2[0] - a1[0]) - (b2[0] - b1[0]) * (a2[1] - a1[1]);
-		if (Math.abs(denom) < 1e-5) {
+		if (Math.abs(denom) < EPS) {
 			return [null, false, false];
 		}
 		const ua = ((b2[0] - b1[0]) * (a1[1] - b1[1]) - (b2[1] - b1[1]) * (a1[0] - b1[0])) / denom;
@@ -246,6 +301,11 @@
 		return [[a1[0] + ua * (a2[0] - a1[0]), a1[1] + ua * (a2[1] - a1[1])],
 				ua >= 0 && ua <= 1,
 				ub >= 0 && ub <= 1];
+	}
+	function isPointAboveTheLine(p, line) {
+		const p1 = line[0], p2 = line[1];
+		const det = (p1[0] - p[0]) * (p2[1] - p[1]) - (p2[0] - p[0]) * (p1[1] - p[1]);
+		return Math.sign(det);
 	}
 	
 	function dot(v1, v2) {
