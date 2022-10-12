@@ -48,8 +48,11 @@
 	const PTS = [[1, 0], [1, 1], [-1, 1], [-1, 0.3], [-0.5, 0.5], [0, 0.2]].map(x => scale(SHAPE_SCALE, x));
 	let pts = PTS.slice();
 	let centerMass = getShapeCM(pts);
-	const p0 = scale(SHAPE_SCALE, [1, 0.5]);
-	const p1 = scale(SHAPE_SCALE, [-7, 0.5]);
+	let p0 = scale(SHAPE_SCALE, [1, 0.5]);
+	let p1 = scale(SHAPE_SCALE, [-7, 0.5]);
+
+	let segments = [];
+	let segmentsColors = [];
 
 	const cnv = document.createElement('canvas');
 	cnv.width = window.innerWidth;
@@ -60,6 +63,13 @@
 	ctx.scale(1, -1);
 
 	let CNV_CENTER = [cnv.width / 2, cnv.height / 2];
+	let mouse = {
+		pos: [0, 0],
+		down: false,
+		drag: false,
+		button: 0,
+		startPos: [0, 0]
+	};
 
 	console.log('Shape: ', pts);
 
@@ -69,8 +79,10 @@
 
 
 	document.addEventListener('wheel', (e) => {
+		resetSegments();
 		rotateShape(pts, Math.sign(event.deltaY) * ROTATE_SPEED);
 		redraw();
+
 		let [left, right, top, bottom] = getBBOX(pts);
 		console.log('Max', Math.max(right - left, bottom - top).toFixed(2), '(' + (right - left).toFixed(2) + '; ' + (bottom - top).toFixed(2) + ')');
 	});
@@ -78,12 +90,14 @@
 	document.addEventListener('keyup', function(e) {
 		let key = e.key.toLowerCase();
 		if (key == 'c') {
-			let shape = pts.slice();
-			calculateBestCut(shape);
+			segmentsNewColors();
+			redraw();
 		} else if (key == 'b') {
+			resetSegments();
 			interactBestFit();
 		} else if (key == 'r') {
 			if (e.shiftKey) { // Shift+R
+				resetSegments();
 				redraw();
 			} else { // R
 				pts = PTS.slice();
@@ -91,25 +105,90 @@
 				redraw();
 			}
 		} else if (key == 'g') {
-			const shape = generateShape(10);
+			resetSegments();
+			const shape = generateShape(15);
 			centerMass = getShapeCM(shape);
 			pts = shape;
 			redraw();
-		} else if (key == 'l') {
-			redraw();
-			ctx.save();
-			ctx.translate(CNV_CENTER[0] - centerMass[0], CNV_CENTER[1] - centerMass[1]);
-			drawLine(p0, p1, 'blue');
-			ctx.restore();
 		}
 	});
-	document.addEventListener('mousemove', function(e) { e = e || window.event; });
+	document.addEventListener('mousemove', function(e) {
+		e = e || window.event;
+		mouse.pos = [e.x, e.y];
+		onMouseMove(e);
+		if (mouse.down && dst(mouse.pos, mouse.startPos) > 5) {
+			if (!mouse.drag) {
+				mouse.drag = true;
+				onDragStart(e);
+			}
+			onDrag(e);
+		}
+		redraw();
+	});
+	document.addEventListener('mousedown', function(e) {
+		e = e || window.event;
+		mouse.pos = [e.x, e.y];
+		mouse.startPos = [e.x, e.y];
+		mouse.button = e.buttons;
+		mouse.down = true;
+		mouse.drag = false;
+		onMouseDown(e);
+	});
+	document.addEventListener('mouseup', function(e) {
+		e = e || window.event;
+		mouse.pos = [e.x, e.y];
+		if (mouse.drag)
+			onDragEnd(e);
+		else
+			onMouseClick(e);
+		onMouseUp(e);
+		mouse.down = false;
+		mouse.drag = false;
+	});
+
+
+	function onMouseMove(evt) {
+	}
+	function onMouseDown(evt) {
+	}
+	function onMouseUp(evt) {
+	}
+	function onMouseClick(evt) {
+	}
+	function onDragStart(evt) {
+		let mp = mouse.startPos;
+		mp[0] = mp[0] - CNV_CENTER[0]
+		mp[1] = -mp[1] + CNV_CENTER[1];
+		p0 = add(mp, centerMass);
+
+		resetSegments();
+	}
+	function onDrag(evt) {
+		let mp = mouse.pos;
+		mp[0] = mp[0] - CNV_CENTER[0]
+		mp[1] = -mp[1] + CNV_CENTER[1];
+		p1 = add(mp, centerMass);
+	}
+	function onDragEnd(evt) {
+		let shape = pts.slice();
+		segments = cutShapeWithLine(shape, [p0, p1]);
+		segmentsNewColors();
+	}
 
 	function interactBestFit() {
 		let [bestAng, bestVal] = simulateShapeFit(pts);
 		console.log('Best rotation: ' + (bestAng * 180 / Math.PI).toFixed(1) + ' with value: ' + bestVal.toFixed(2));
 		rotateShape(pts, bestAng);
 		redraw();
+	}
+
+	function resetSegments() {
+		segments = [];
+		segmentsColors = [];
+	}
+
+	function segmentsNewColors() {
+		segmentsColors = segments.map(x => getRandomColor());
 	}
 
 	function generateShape(vN, w=500, h=500) {
@@ -263,14 +342,16 @@
 		// const p1 = scale(SHAPE_SCALE, [-7, 0.5]);
 
 		ctx.save();
-		ctx.translate(CNV_CENTER[0] - centerMass[0], CNV_CENTER[1] - centerMass[1]);
-		drawLine(p0, p1, 'blue');
-		ctx.restore();
+		// ctx.translate(CNV_CENTER[0] - centerMass[0], CNV_CENTER[1] - centerMass[1]);
+		// drawLine(p0, p1, 'blue');
+		// ctx.restore();
 
 		shapes = cutShapeWithLine(shape, [p0, p1]);
 
 		console.log(shapes);
 		shapes.forEach(sh => drawShape(sh, new CtxStyle(getRandomColor(), 5, 'connected'), false));
+
+		ctx.restore();
 	}
 
 	function simulateShapeFit(shape) {
@@ -339,7 +420,7 @@
 		if (shape.length < 1 || shape.includes(undefined))
 			return;
 		ctx.save();
-		ctx.translate(CNV_CENTER[0] - centerMass[0], CNV_CENTER[1] - centerMass[1]);
+		// ctx.translate(CNV_CENTER[0] - centerMass[0], CNV_CENTER[1] - centerMass[1]);
 		let clr = Array(shape.length).fill(style.color);
 		if (style.color == 'gradient')
 			for (let i = 0; i < shape.length; ++i)
@@ -355,13 +436,25 @@
 
 	function redraw() {
 		ctx.clearRect(0, 0, cnv.width, cnv.height);
+		ctx.save();
+		ctx.translate(CNV_CENTER[0] - centerMass[0], CNV_CENTER[1] - centerMass[1]);
 
 		drawShape(pts, STYLE_SHAPE); // shape
 
-		// const [l, r, t, b] = getBBOX(pts);
-		// drawShape([[l, t], [l, b], [r, b], [r, t]], STYLE_BBOX); // bbox
+		const [l, r, t, b] = getBBOX(pts);
+		drawShape([[l, t], [l, b], [r, b], [r, t]], STYLE_BBOX); // bbox
 
 		drawPolygon(pts, STYLE_POINTS); // points
+
+		if (mouse.drag || segments.length) {
+			drawLine(p0, p1, 'blue');
+		}
+
+		if (segments.length) {
+			segments.forEach((sh, i) => drawShape(sh, new CtxStyle(segmentsColors[i], 5, 'connected'), false));
+		}
+
+		ctx.restore();
 	}
 </script>
 </body>
