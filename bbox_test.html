@@ -48,11 +48,13 @@
 	const PTS = [[1, 0], [1, 1], [-1, 1], [-1, 0.3], [-0.5, 0.5], [0, 0.2]].map(x => scale(SHAPE_SCALE, x));
 	let pts = PTS.slice();
 	let centerMass = getShapeCM(pts);
-	let p0 = scale(SHAPE_SCALE, [1, 0.5]);
-	let p1 = scale(SHAPE_SCALE, [-7, 0.5]);
+	let cutLine = [];
 
 	let segments = [];
 	let segmentsColors = [];
+
+	let busy = false;
+	let cancelRequest = false;
 
 	const cnv = document.createElement('canvas');
 	cnv.width = window.innerWidth;
@@ -79,12 +81,14 @@
 
 
 	document.addEventListener('wheel', (e) => {
-		resetSegments();
-		rotateShape(pts, Math.sign(event.deltaY) * ROTATE_SPEED);
-		redraw();
+		if (!busy) {
+			resetSegments();
+			rotateShape(pts, Math.sign(event.deltaY) * ROTATE_SPEED);
+			redraw();
 
-		let [left, right, top, bottom] = getBBOX(pts);
-		console.log('Max', Math.max(right - left, bottom - top).toFixed(2), '(' + (right - left).toFixed(2) + '; ' + (bottom - top).toFixed(2) + ')');
+			let [left, right, top, bottom] = getBBOX(pts);
+			console.log('Max', Math.max(right - left, bottom - top).toFixed(2), '(' + (right - left).toFixed(2) + '; ' + (bottom - top).toFixed(2) + ')');
+		}
 	});
 	document.addEventListener('keydown', function(e) { });
 	document.addEventListener('keyup', function(e) {
@@ -93,23 +97,39 @@
 			segmentsNewColors();
 			redraw();
 		} else if (key == 'b') {
-			resetSegments();
-			interactBestFit();
-		} else if (key == 'r') {
-			if (e.shiftKey) { // Shift+R
+			if (!busy) {
 				resetSegments();
-				redraw();
-			} else { // R
-				pts = PTS.slice();
-				rotateShape(pts, 0);
-				redraw();
+				interactBestFit();
+			}
+		} else if (key == 'r') {
+			if (!busy) {
+				resetSegments();
+				if (e.shiftKey) { // Shift+R
+					redraw();
+				} else { // R
+					pts = PTS.slice();
+					rotateShape(pts, 0);
+					redraw();
+				}
 			}
 		} else if (key == 'g') {
-			resetSegments();
-			const shape = generateShape(15);
-			centerMass = getShapeCM(shape);
-			pts = shape;
-			redraw();
+			if (!busy) {
+				resetSegments();
+				const shape = generateShape(15);
+				centerMass = getShapeCM(shape);
+				pts = shape;
+				redraw();
+			}
+		} else if (key == 's') {
+			if (!busy) {
+				resetSegments();
+				calculateBestCutInteractive(pts);
+			}
+		} else if (key == 'escape') {
+			if (busy) {
+				cancelRequest = true;
+				// waiting for task to be cancelled, the task should call notifyTaskCancelled()
+			}
 		}
 	});
 	document.addEventListener('mousemove', function(e) {
@@ -156,22 +176,22 @@
 	function onMouseClick(evt) {
 	}
 	function onDragStart(evt) {
+		resetSegments();
+
 		let mp = mouse.startPos;
 		mp[0] = mp[0] - CNV_CENTER[0]
 		mp[1] = -mp[1] + CNV_CENTER[1];
-		p0 = add(mp, centerMass);
-
-		resetSegments();
+		cutLine[0] = add(mp, centerMass);
 	}
 	function onDrag(evt) {
 		let mp = mouse.pos;
 		mp[0] = mp[0] - CNV_CENTER[0]
 		mp[1] = -mp[1] + CNV_CENTER[1];
-		p1 = add(mp, centerMass);
+		cutLine[1] = add(mp, centerMass);
 	}
 	function onDragEnd(evt) {
 		let shape = pts.slice();
-		segments = cutShapeWithLine(shape, [p0, p1]);
+		segments = cutShapeWithLine(shape, cutLine);
 		segmentsNewColors();
 	}
 
@@ -181,14 +201,81 @@
 		rotateShape(pts, bestAng);
 		redraw();
 	}
+	function notifyTaskCancelled() {
+		busy = false;
+	}
 
 	function resetSegments() {
 		segments = [];
 		segmentsColors = [];
+		resetCutLine();
+	}
+	function resetCutLine() {
+		cutLine = [null, null];
 	}
 
 	function segmentsNewColors() {
 		segmentsColors = segments.map(x => getRandomColor());
+	}
+
+	function calculateBestCut(shape) {
+		calculateBestCutInteractive(shape);
+	}
+	function calculateBestCutInteractive(shape) {
+		const [left, right, top, bottom] = getBBOX(shape);
+		let finished = false;
+		let bestCut = {
+			line: [[0, 0], [1, 0]],
+			loss: Number.MAX_VALUE,
+			angles: []
+		}
+		let tryInd = 0;
+		function getShapesMetric(shapes) {
+			let losses = [];
+			let angles = [];
+			for (let i = 0; i < shapes.length; ++i) {
+				let [bestAng, bestVal] = simulateShapeFit(shapes[i]);
+				losses.push(bestVal);
+				angles.push(bestAng);
+			}
+			return {loss: Math.max.apply(null, losses), angles: angles};
+		}
+		function loop() {
+			busy = true;
+
+			// first define cutting line
+			const p0 = [Math.random() * (right - left) + left, Math.random() * (bottom - top) + top];
+			const ang0 = Math.random() * Math.PI;
+			const v0 = [Math.cos(ang0), Math.sin(ang0)];
+			const p1 = [p0[0] + v0[0], p0[1] + v0[1]];
+
+			// cut the shape with the line
+			shapes = cutShapeWithLine(shape, [p0, v0]);
+
+			// update best cut
+			const metric = getShapesMetric(shapes);
+			if (metric.loss < bestCut.loss) {
+				bestCut.loss = metric.loss;
+				bestCut.angles = metric.angles;
+				bestCut.line = [p0, v0];
+
+				// draw new best cut
+				segments = cutShapeWithLine(shape, bestCut.line);
+				segmentsNewColors();
+				redraw();
+			}
+			
+			++tryInd;
+			if (cancelRequest || tryInd >= 1000) {
+				console.log('finished -> ' + (cancelRequest ? 'canceled' : 'max_tries'));
+				finished = true;
+				cancelRequest = false;
+				notifyTaskCancelled();
+			}
+			if (!finished)
+				window.requestAnimationFrame(loop);		
+		}
+		window.requestAnimationFrame(loop);
 	}
 
 	function generateShape(vN, w=500, h=500) {
@@ -331,29 +418,6 @@
 		return shapes.map(sh => sh.map(x => x.p));
 	}
 
-	function calculateBestCut(shape) {
-		// // first define cutting line
-		// const [left, right, top, bottom] = getBBOX(shape);
-		// // const p0 = [Math.random() * (right - left) + left, Math.random() * (bottom - top) + top];
-		// const p0 = scale(SHAPE_SCALE, [1, 0.5]);
-		// const ang0 = Math.random() * Math.PI;
-		// const v0 = [Math.cos(ang0), Math.sin(ang0)];
-		// // const p1 = [p0[0] + v0[0], p0[1] + v0[1]];
-		// const p1 = scale(SHAPE_SCALE, [-7, 0.5]);
-
-		ctx.save();
-		// ctx.translate(CNV_CENTER[0] - centerMass[0], CNV_CENTER[1] - centerMass[1]);
-		// drawLine(p0, p1, 'blue');
-		// ctx.restore();
-
-		shapes = cutShapeWithLine(shape, [p0, p1]);
-
-		console.log(shapes);
-		shapes.forEach(sh => drawShape(sh, new CtxStyle(getRandomColor(), 5, 'connected'), false));
-
-		ctx.restore();
-	}
-
 	function simulateShapeFit(shape) {
 		let shapeClone = shape.slice();
 		// Test all rotations
@@ -446,8 +510,8 @@
 
 		drawPolygon(pts, STYLE_POINTS); // points
 
-		if (mouse.drag || segments.length) {
-			drawLine(p0, p1, 'blue');
+		if (cutLine.length && !cutLine.includes(null)) {
+			drawLine(cutLine[0], cutLine[1], 'blue');
 		}
 
 		if (segments.length) {

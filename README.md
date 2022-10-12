@@ -9,5 +9,10 @@ Originally the idea of this toolset is to help estimating and searching for best
 ## TODO:
 - Mouse interaction for the cutting line
 - Optimizing a single cut for the subshapes to fit the square
+- Using something better than brute-force (genetic algo?)
+- Different metrics:
+	- optimize max size of each subshape (w/ or w/o number of subshapes constraint)
+	- optimize number of subshapes (w/ or w/o max size constraint)
+	- optimize length of a cut line
 - Optimizing multiple cuts
 - GUI help
