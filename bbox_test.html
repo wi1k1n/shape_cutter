@@ -2,8 +2,12 @@
 <html>
 <head>
 	<meta charset="utf-8">
-	<script src="sdk.js"></script>
-	<title>Bezier</title>
+	<title>Shape Cutter</title>
+	<script src="js/jquery-1.7.2.min.js"></script>
+	<script src="js/jquery.terminal.min.js"></script>
+	<script src="js/terminal.js"></script>
+	<script src="js/sdk.js"></script>
+	<link href="css/jquery.terminal.min.css" rel="stylesheet">
 	<style type="text/css">
 		html, body {
 			width: 100%;
@@ -11,10 +15,32 @@
 			margin: 0;
 		}
 	</style>
+<!--[if IE]>
+<style>
+body {
+    margin: 0;
+    padding: 0;
+}
+.tilda {
+    position: absolute;
+}
+</style>
+<script>
+jQuery(document).ready(function($) {
+   $(window).scroll(function() {
+      $('.tilda').each(function() {
+         $(this).css({top: $('body').prop('scrollTop')});
+      });
+   });
+});
+</script>
+<![endif]-->
 </head>
 <body>
+<div id="tilda" class="tilda" style="display: none;"></div>
 <div id="result">
 </div>
+
 <script type="text/javascript">
 	const STYLE_SHAPE = new CtxStyle('lightgray', 1, 'connected');
 	const STYLE_BBOX = new CtxStyle('red', 1, 'connected');
@@ -81,28 +107,32 @@
 
 
 	document.addEventListener('wheel', (e) => {
-		if (!busy) {
-			resetSegments();
-			rotateShape(pts, Math.sign(event.deltaY) * ROTATE_SPEED);
-			redraw();
+		if (!busy && !window.isTerminalFocused()) {
+			if (e.shiftKey) {
+				resetSegments();
+				rotateShape(pts, Math.sign(event.deltaY) * ROTATE_SPEED);
+				redraw();
 
-			let [left, right, top, bottom] = getBBOX(pts);
-			console.log('Max', Math.max(right - left, bottom - top).toFixed(2), '(' + (right - left).toFixed(2) + '; ' + (bottom - top).toFixed(2) + ')');
+				let [left, right, top, bottom] = getBBOX(pts);
+				console.log('Max', Math.max(right - left, bottom - top).toFixed(2), '(' + (right - left).toFixed(2) + '; ' + (bottom - top).toFixed(2) + ')');
+			}
 		}
 	});
 	document.addEventListener('keydown', function(e) { });
 	document.addEventListener('keyup', function(e) {
 		let key = e.key.toLowerCase();
 		if (key == 'c') {
-			segmentsNewColors();
-			redraw();
+			if (!window.isTerminalFocused()) {
+				segmentsNewColors();
+				redraw();
+			}
 		} else if (key == 'b') {
-			if (!busy) {
+			if (!busy && !window.isTerminalFocused()) {
 				resetSegments();
 				interactBestFit();
 			}
 		} else if (key == 'r') {
-			if (!busy) {
+			if (!busy && !window.isTerminalFocused()) {
 				resetSegments();
 				if (e.shiftKey) { // Shift+R
 					redraw();
@@ -113,7 +143,7 @@
 				}
 			}
 		} else if (key == 'g') {
-			if (!busy) {
+			if (!busy && !window.isTerminalFocused()) {
 				resetSegments();
 				const shape = generateShape(15);
 				centerMass = getShapeCM(shape);
@@ -121,7 +151,7 @@
 				redraw();
 			}
 		} else if (key == 's') {
-			if (!busy) {
+			if (!busy && !window.isTerminalFocused()) {
 				resetSegments();
 				calculateBestCutInteractive(pts);
 			}
