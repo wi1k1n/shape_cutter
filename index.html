@@ -1,0 +1,115 @@
+<DOCTYPE html>
+<html>
+<head>
+	<meta charset="utf-8">
+	<title>Shape Cutter</title>
+	<style type="text/css">
+		html, body {
+			width: 100%;
+			height: 100%;
+			margin: 0;
+		}
+	</style>
+</head>
+<body>
+<input type="file" id="inp_file" style="display: none;" accept=".jpg, .jpeg, .png, .bmp">
+<div id="div_canvas">
+    <canvas id="cnv_editor">HTML5 Canvas is not supported in your browser</canvas>
+</div>
+<script type="text/javascript" src="js/placeholder.js"></script>
+<script type="text/javascript">
+(function() {
+	const PASTEIMAGEMIMETYPES = ['image/png', 'image/jpeg', 'image/bmp'];
+
+	let img = new Image;
+	img.onload = onImageLoaded;
+	img.src = IMG_PLACEHOLDER;
+	let imgOffset = {x: 0, y: 0};
+	let imgScale = {x: 1.0, y: 1.0};
+
+	const cnv = document.getElementById('cnv_editor');
+	const ctx = cnv.getContext ? cnv.getContext('2d') : null;
+	if (!ctx)
+		return console.error('Could not get canvas context. Exiting...');
+	cnv.focus();
+	// Make canvas clearer
+	const divCnv = document.getElementById('div_canvas');
+	cnv.width = divCnv.clientWidth * 2;
+	cnv.height = divCnv.clientHeight * 2;
+	const w = cnv.width / 2, h = cnv.height / 2;
+	ctx.scale(2, 2);
+	ctx.imageSmoothingEnabled = false;
+
+	function redraw() {
+		const sx = -Math.min(imgOffset.x / imgScale.x, 0);
+		const sy = -Math.min(imgOffset.y / imgScale.y, 0);
+		const sw = Math.min((w - imgOffset.x) / imgScale.x, img.width) - sx;
+		const sh = Math.min((h - imgOffset.y) / imgScale.y, img.height) - sy;
+		const dx = Math.max(imgOffset.x, 0);
+		const dy = Math.max(imgOffset.y, 0);
+		const dw = sw * imgScale.x;
+		const dh = sh * imgScale.y;
+		ctx.clearRect(0, 0, w, h);
+		ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh);
+	}
+
+	// when user selects file
+	function inp_fileOnChange(e) {
+		if (!e.target.files || !e.target.files.length) return;
+		img.onload = onImageLoaded;
+		img.src = URL.createObjectURL(e.target.files[0]);
+	}
+	function onImageLoaded() {
+		console.log('onImageLoaded()');
+		redraw();
+	}
+	// triggers when user pastes image from clipboard
+	function onImagePaste(evt) {
+		// console.log(evt.clipboardData.getData('image/png'));
+		navigator.clipboard.read().then(cis => {
+			for (const ci of cis) {
+				// console.log(ci);
+				for (const type of ci.types) {
+					if (!PASTEIMAGEMIMETYPES.includes(type)) continue;
+					// console.log('Trying type ', type);
+					ci.getType(type).then(x => {
+						// console.log('Got: ', x);
+						img.src = URL.createObjectURL(x);
+					}).catch(e => console.log('getType() => ', e));
+					break;
+				}
+			}
+		}).catch(e => console.log('read() =>', e));
+	}
+	(function initializeEventHandlers() {
+		document.getElementById('inp_file').onchange = inp_fileOnChange;  // open new file
+		window.addEventListener("paste", onImagePaste, false);
+
+		// cnv.onmousedown = cnvOnMouseDown;
+		// cnv.onmouseup = cnvOnMouseUp;
+		// cnv.onmousemove = cnvOnMouseMove;
+		// cnv.onwheel = cnvOnWheel;
+		// document.onkeydown = cnvOnKeyDown;
+		// document.onkeyup = cnvOnKeyUp;
+		// document.oncontextmenu = preventDefaultEvents;
+		// cnv.oncontextmenu = preventDefaultEvents;
+
+		// divHelp.onclick = divHelpOnClick;
+	})();
+	// document.onpaste = function(pasteEvent) {
+	// 	// consider the first item (can be easily extended for multiple items)
+	// 	var item = pasteEvent.clipboardData.items[0];
+	// 	if (item.type.indexOf("image") === 0)
+	// 	{
+	// 		var blob = item.getAsFile();
+	// 		var reader = new FileReader();
+	// 		reader.onload = function(event) {
+	// 			document.getElementById("imgContainer").src = event.target.result;
+	// 		};
+	// 		reader.readAsDataURL(blob);
+	// 	}
+	// }
+})();
+</script>
+</body>
+</html>

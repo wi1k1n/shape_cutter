@@ -74,10 +74,15 @@ jQuery(document).ready(function($) {
 	const PTS = [[1, 0], [1, 1], [-1, 1], [-1, 0.3], [-0.5, 0.5], [0, 0.2]].map(x => scale(SHAPE_SCALE, x));
 	let pts = PTS.slice();
 	let centerMass = getShapeCM(pts);
+	let centerMassDeltaStart = centerMass; // buffer to save CM on drag start
 	let cutLine = [];
 
+	let bestCut = null;
 	let segments = [];
 	let segmentsColors = [];
+	// 0 - just draw PTS, bbox and segments as they are
+	// 1 - draw only segments, rotated to their best angles
+	let drawMode = 0;
 
 	let busy = false;
 	let cancelRequest = false;
@@ -160,6 +165,16 @@ jQuery(document).ready(function($) {
 				cancelRequest = true;
 				// waiting for task to be cancelled, the task should call notifyTaskCancelled()
 			}
+		} else if (key == '1') { // draw modes
+			if (!window.isTerminalFocused()) {
+				drawMode = 0;
+				redraw();
+			}
+		} else if (key == '2') {
+			if (!window.isTerminalFocused()) {
+				drawMode = 1;
+				redraw();
+			}
 		}
 	});
 	document.addEventListener('mousemove', function(e) {
@@ -195,6 +210,8 @@ jQuery(document).ready(function($) {
 		mouse.down = false;
 		mouse.drag = false;
 	});
+	document.oncontextmenu = preventDefaultEvents;
+	cnv.oncontextmenu = preventDefaultEvents;
 
 
 	function onMouseMove(evt) {
@@ -206,23 +223,44 @@ jQuery(document).ready(function($) {
 	function onMouseClick(evt) {
 	}
 	function onDragStart(evt) {
-		resetSegments();
-
 		let mp = mouse.startPos;
-		mp[0] = mp[0] - CNV_CENTER[0]
-		mp[1] = -mp[1] + CNV_CENTER[1];
-		cutLine[0] = add(mp, centerMass);
+		if (mouse.button == 1) {
+			resetSegments();
+
+			mp[0] = mp[0] - CNV_CENTER[0]
+			mp[1] = -mp[1] + CNV_CENTER[1];
+			cutLine[0] = add(mp, centerMass);
+		} else if (mouse.button == 2) {
+			mp[0] = mp[0] - CNV_CENTER[0]
+			mp[1] = -mp[1] + CNV_CENTER[1];
+			centerMassDeltaStart = subtract(mp, centerMass);
+		}
 	}
 	function onDrag(evt) {
 		let mp = mouse.pos;
-		mp[0] = mp[0] - CNV_CENTER[0]
-		mp[1] = -mp[1] + CNV_CENTER[1];
-		cutLine[1] = add(mp, centerMass);
+		if (mouse.button == 1) {
+			mp[0] = mp[0] - CNV_CENTER[0]
+			mp[1] = -mp[1] + CNV_CENTER[1];
+			cutLine[1] = add(mp, centerMass);
+		} else if (mouse.button == 2) {
+			mp[0] = -mp[0];
+			mp[1] = mp[1] - CNV_CENTER[1];
+			centerMass = add(mp, centerMassDeltaStart);
+			redraw();
+		}
 	}
 	function onDragEnd(evt) {
-		let shape = pts.slice();
-		segments = cutShapeWithLine(shape, cutLine);
-		segmentsNewColors();
+		if (mouse.button == 1) {
+			let shape = pts.slice();
+			segments = cutShapeWithLine(shape, cutLine);
+			const metric = getShapesMetric(segments);
+			bestCut = {
+				line: cutLine,
+				loss: metric.loss,
+				angles: metric.angles
+			}
+			segmentsNewColors();
+		}
 	}
 
 	function interactBestFit() {
@@ -251,25 +289,25 @@ jQuery(document).ready(function($) {
 	function calculateBestCut(shape) {
 		calculateBestCutInteractive(shape);
 	}
+	function getShapesMetric(shapes) {
+		let losses = [];
+		let angles = [];
+		for (let i = 0; i < shapes.length; ++i) {
+			let [bestAng, bestVal] = simulateShapeFit(shapes[i]);
+			losses.push(bestVal);
+			angles.push(bestAng);
+		}
+		return {loss: Math.max.apply(null, losses), angles: angles};
+	}
 	function calculateBestCutInteractive(shape) {
 		const [left, right, top, bottom] = getBBOX(shape);
 		let finished = false;
-		let bestCut = {
+		bestCut = {
 			line: [[0, 0], [1, 0]],
 			loss: Number.MAX_VALUE,
 			angles: []
 		}
 		let tryInd = 0;
-		function getShapesMetric(shapes) {
-			let losses = [];
-			let angles = [];
-			for (let i = 0; i < shapes.length; ++i) {
-				let [bestAng, bestVal] = simulateShapeFit(shapes[i]);
-				losses.push(bestVal);
-				angles.push(bestAng);
-			}
-			return {loss: Math.max.apply(null, losses), angles: angles};
-		}
 		function loop() {
 			busy = true;
 
@@ -533,22 +571,48 @@ jQuery(document).ready(function($) {
 		ctx.save();
 		ctx.translate(CNV_CENTER[0] - centerMass[0], CNV_CENTER[1] - centerMass[1]);
 
-		drawShape(pts, STYLE_SHAPE); // shape
+		if (drawMode == 0) {
+			drawShape(pts, STYLE_SHAPE); // shape
 
-		const [l, r, t, b] = getBBOX(pts);
-		drawShape([[l, t], [l, b], [r, b], [r, t]], STYLE_BBOX); // bbox
+			const [l, r, t, b] = getBBOX(pts);
+			drawShape([[l, t], [l, b], [r, b], [r, t]], STYLE_BBOX); // bbox
 
-		drawPolygon(pts, STYLE_POINTS); // points
+			drawPolygon(pts, STYLE_POINTS); // points
 
-		if (cutLine.length && !cutLine.includes(null)) {
-			drawLine(cutLine[0], cutLine[1], 'blue');
-		}
+			if (cutLine.length && !cutLine.includes(null)) {
+				drawLine(cutLine[0], cutLine[1], 'blue');
+			}
 
-		if (segments.length) {
-			segments.forEach((sh, i) => drawShape(sh, new CtxStyle(segmentsColors[i], 5, 'connected'), false));
+			if (segments.length) {
+				segments.forEach((sh, i) => drawShape(sh, new CtxStyle(segmentsColors[i], 5, 'connected'), false));
+			}
+		} else if (drawMode == 1) {
+			if (segments.length && bestCut) {
+				if (segments.length && bestCut) {
+					centerMass = getShapeCM(segments[0]);
+					segments.forEach(function(sh, i) {
+						// calculating this stuff on every frame is an overhead! should be calculated once!
+						let curShape = sh.slice();
+						rotateShape(curShape, bestCut.angles[i], false);
+						translateShape(curShape, centerMass);
+						
+						const [l, r, t, b] = getBBOX(curShape);
+						drawShape([[l, t], [l, b], [r, b], [r, t]], STYLE_BBOX); // bbox
+
+						drawShape(curShape, new CtxStyle(segmentsColors[i], 5, 'connected'), false);
+					});
+				}
+			}
 		}
 
 		ctx.restore();
+	}
+
+	function preventDefaultEvents(evt){
+		if (evt.preventDefault != undefined)
+			evt.preventDefault();
+		if (evt.stopPropagation != undefined)
+			evt.stopPropagation();
 	}
 </script>
 </body>

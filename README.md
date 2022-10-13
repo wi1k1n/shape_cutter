@@ -15,4 +15,4 @@ Originally the idea of this toolset is to help estimating and searching for best
 	- optimize number of subshapes (w/ or w/o max size constraint)
 	- optimize length of a cut line
 - Optimizing multiple cuts
-- GUI help
+- GUI help -> make terminal functional

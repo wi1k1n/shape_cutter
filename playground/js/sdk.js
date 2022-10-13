@@ -29,6 +29,12 @@ function isPointAboveTheLine(p, line) {
 	return Math.sign(det);
 }
 
+function translateShape(shape, p) {
+	for (let i = 0; i < shape.length; i++) {
+		shape[i] = add(shape[i], p);
+	}
+}
+
 function dot(v1, v2) {
 	return v1[0] * v2[0] + v1[1] * v2[1];
 }
