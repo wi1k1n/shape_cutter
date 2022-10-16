@@ -42,52 +42,63 @@
 	paper.install(window);
 	paper.setup(cnv);
 	// project.clear();
-
-	let appMode = APPMODE.CREATE_SHAPES;
-
-	// let layers = {};
-	let shapes = [];
-
-	let bgImg = new Raster(IMG_PLACEHOLDER).sendToBack();
-	let pathInput = false;
-
 	project.activeLayer.position = view.center;
 	project.activeLayer.applyMatrix = false;
 
-	// Layer initialization
-	// layers[APPMODE.CREATE_SHAPES] = createNewLayer([img], true); // Layer for creating shapes
-	// layers[APPMODE.EXPLORE_SHAPES] = createNewLayer(shapes); // Layer for exploring shapes
-	// console.log(project.layers);
-	// switchAppMode(APPMODE.CREATE_SHAPES); // set default app mode
+	let appMode = APPMODE.CREATE_SHAPES;
+	const navigationAllowed = appMode == APPMODE.CREATE_SHAPES
+		 || appMode == APPMODE.DRAW_CUTLINE
+
+	// let layers = {};
+	let shapes = [];
+	let pathInput = false;
+	let moveShapes = false; // flag, if moving shapes currently
+
+	let cutLines = [];
+	let cutLineInput = false;
+
+	let bgImg = new Raster({
+		source: IMG_PLACEHOLDER,
+		position: view.center,
+		smoothing: 'off'
+	}).sendToBack();
 
 
 
+	function switchAppMode(mode) {
+		if (appMode == mode) {
+			return;
+		}
+		appMode = mode;
+		
+		function cleanAllLeftoversFor(mode) {
+			if (mode != APPMODE.CREATE_SHAPES) {
+				// toggleMoveShapesMode(false);
+				cancelCurrentShapeCreation();
+			} else if (mode != APPMODE.DRAW_CUTLINE) {
+				cancelCurrentCutlineCreation();
+			}
+		}
 
-	// function switchAppMode(mode) {
-	// 	if (!(mode in layers)) {
-	// 		console.error('App mode: ' + mode + ' not found in layers dict!');
-	// 		return;
-	// 	}
-	// 	appMode = mode;
-	// 	let layer = layers[mode];
-
-	// 	// project.activeLayer.visible = false;
-	// 	// project.activeLayer.locked = true;
-	// 	// layer.activate();
-	// 	// layer.visible = true;
-	// 	// layer.locked = false;
-
-	// 	if (mode == APPMODE.CREATE_SHAPES) {
-	// 		layer.addChildren(shapes);
-	// 	} else if (mode == APPMODE.EXPLORE_SHAPES) {
-	// 		layer.addChildren(shapes);
-	// 	}
-	// }
+		cleanAllLeftoversFor(mode);
+		if (mode == APPMODE.CREATE_SHAPES) {
+			// cutLines.forEach(l => {
+			// 	l.visible = false;
+			// 	l.locked = true;
+			// });
+		} else if (mode == APPMODE.DRAW_CUTLINE) {
+			// cutLines.forEach(l => {
+			// 	l.visible = true;
+			// 	l.locked = false;
+			// });
+		}
+	}
 
 
 	function onMouseWheel(evt) {
 		// console.log(evt);
-		if (appMode == APPMODE.CREATE_SHAPES) {
+		if (appMode == APPMODE.CREATE_SHAPES
+		 || appMode == APPMODE.DRAW_CUTLINE) {
 			let scaleFactor = Math.pow(SCALE_MULTIPLIER, -Math.sign(evt.deltaY));
 			if (evt.shiftKey) {
 				project.activeLayer.scale(scaleFactor);
@@ -97,41 +108,83 @@
 		}
 	}
 	function onMouseClick(evt) {
+	}
+	function onMouseDown(evt) {
 		// console.log(evt);
+		let curPoint = project.activeLayer.matrix.inverseTransform(evt.point);
+		// let curPoint = view.getEventPoint(evt.event);
 		if (appMode == APPMODE.CREATE_SHAPES) {
-			if (evt.event.button == MOUSE.LEFT) {
-				let curPoint = project.activeLayer.matrix.inverseTransform(evt.point);
-				if (pathInput) {
-					let path = shapes.at(-1);
-					path.add(curPoint);
-				} else {
+			if (evt.event.buttons & MOUSE.LEFT) {
+				if (!moveShapes) {
+					if (pathInput) {
+						let path = shapes.at(-1);
+						path.add(curPoint);
+					} else {
+						let path = new Path({
+							segments: [curPoint, curPoint],
+							fillColor: 'rgba(255, 255, 255, 0.00001)',
+							strokeColor: 'red',
+							strokeWidth: 2,
+							closed: true,
+							locked: false,
+							onMouseEnter: shapeOnMouseEnter,
+							onMouseLeave: shapeOnMouseLeave,
+							onMouseDrag: shapeOnMouseDrag,
+							onMouseMove: shapeOnMouseMove
+						});
+						shapes.push(path);
+						pathInput = true;
+					}
+				}
+			}
+		} else if (appMode == APPMODE.DRAW_CUTLINE) {
+			if (evt.event.buttons & MOUSE.LEFT) {
+				if (!cutLineInput) {
 					let path = new Path({
 						segments: [curPoint, curPoint],
 						fillColor: 'rgba(255, 255, 255, 0.00001)',
-						strokeColor: 'red',
-						strokeWidth: 2,
-						closed: true
+						strokeColor: 'orange',
+						strokeWidth: 2
 					});
-					shapes.push(path);
-					pathInput = true;
+					cutLines.push(path);
+					cutLineInput = true;
 				}
 			}
 		}
 	}
 	function onMouseMove(evt) {
 		let mpoint = project.activeLayer.matrix.inverseTransform(evt.point);
+		// let mpoint = view.getEventPoint(evt.event);
 		divMouse.innerHTML = mpoint.toString();
 		if (appMode == APPMODE.CREATE_SHAPES) {
 			if (pathInput && shapes.length) {
 				let path = shapes.at(-1);
 				path.lastSegment.point = mpoint;
 			}
+		} else if (appMode == APPMODE.DRAW_CUTLINE) {
+			if (cutLineInput && cutLines.length) {
+				let line = cutLines.at(-1);
+				line.lastSegment.point = mpoint;
+			}
+		}
+	}
+	function onMouseUp(evt) {
+		function MUP(c) { return Math.floor(Math.log2(c)); }
+		// !!! evt.event.buttons property doesn't contain the button that triggered an event. Use evt.event.button insted !!!
+		let mpoint = project.activeLayer.matrix.inverseTransform(evt.point);
+		// let mpoint = view.getEventPoint(evt.event);
+		if (appMode == APPMODE.DRAW_CUTLINE) {
+			if (evt.event.button == MUP(MOUSE.LEFT)) {
+				cutLineInput = false;
+			}
 		}
 	}
 	function onMouseDrag(evt) {
+		onMouseMove(evt);
 		// console.log(evt);
-		if (appMode == APPMODE.CREATE_SHAPES) {
-			if (evt.event.buttons == MOUSE.RIGHT) {
+		if (appMode == APPMODE.CREATE_SHAPES
+		 || appMode == APPMODE.DRAW_CUTLINE) {
+			if (evt.event.buttons & MOUSE.RIGHT) {
 				project.activeLayer.translate(evt.delta);
 			}
 		}
@@ -160,22 +213,39 @@
 					break;
 				}
 				case KEYBOARD.ESCAPE: {
-					let path = shapes.at(-1); // can be undefined
-					if (pathInput && path && path.segments.length > 3) {
-						path.removeSegment(path.segments.length - 1);
-					} else {
-						if (shapes.length) {
-							path.remove();
-							shapes.pop();
-						}
-					}
-					pathInput = false;
+					cancelCurrentShapeCreation();
 					break;
 				}
 				case KEYBOARD.C: {
-					// same as Escape but removes all shapes at once
 					shapes.forEach(p => p.remove());
-					shapes = [];put = false;
+					shapes = [];
+					pathInput = false;
+					toggleMoveShapesMode(false);
+					break;
+				}
+				case KEYBOARD.M: {
+					if (shapes.length) {
+						toggleMoveShapesMode();
+					}
+					break;
+				}
+				case KEYBOARD.DELETE: {
+					if (moveShapes) {
+						for (let i = 0; i < shapes.length; i++) {
+							let p = shapes[i];
+							if (!p.selected) {
+								continue;
+							}
+							p.remove();
+							shapes.splice(i--, 1);
+						}
+						shapes.filter(p => p.selected).forEach(p => {
+							p.remove();
+						});
+						if (!shapes.length) {
+							toggleMoveShapesMode(false);
+						}
+					}
 					break;
 				}
 				case KEYBOARD.B: {
@@ -186,14 +256,33 @@
 					break;
 				}
 			}
-		}	
+		}
+		
+		if (appMode == APPMODE.DRAW_CUTLINE) {
+			switch(evt.event.code) {
+				case KEYBOARD.ESCAPE: {
+					cancelCurrentCutlineCreation();
+					break;
+				}
+				case KEYBOARD.C: {
+					cutLines.forEach(l => l.remove());
+					cutLines = [];
+					cutLineInput = false;
+					break;
+				}
+				default: {
+					break;
+				}
+			}
+		}
+		// Common for all app modes
 		switch (evt.event.code) {
 			case KEYBOARD.ONE: {
 				switchAppMode(APPMODE.CREATE_SHAPES);
 				break;
 			}
 			case KEYBOARD.TWO: {
-				switchAppMode(APPMODE.EXPLORE_SHAPES);
+				switchAppMode(APPMODE.DRAW_CUTLINE);
 				break;
 			}
 			default: break;
@@ -202,7 +291,9 @@
 
 	// EventListeners
 	paper.view.onClick = onMouseClick;
+	paper.view.onMouseDown = onMouseDown;
 	paper.view.onMouseMove = onMouseMove;
+	paper.view.onMouseUp = onMouseUp;
 	paper.view.onMouseDrag = onMouseDrag;
 	paper.view.onKeyDown = onKeyDown;
 	cnv.addEventListener('wheel', onMouseWheel);
@@ -213,15 +304,76 @@
 	
 	
 
-	// function createNewLayer(children, active=false) {
-	// 	let layer = project.addLayer(new Layer(children));
-	// 	layer.position = view.center;
-	// 	layer.locked = !active;
-	// 	layer.visible = active;
-	// 	layer.applyMatrix = false;
-	// 	return layer;
-	// }
+	function shapeOnMouseEnter(evt) {
+		if (!moveShapes || appMode != APPMODE.CREATE_SHAPES) {
+			evt.target.selected = false;
+			return;
+		}
+		evt.target.selected = true;
+	}
+	function shapeOnMouseMove(evt) {
+		shapeOnMouseEnter(evt);
+	}
+	function shapeOnMouseLeave(evt) {
+		if (!moveShapes || appMode != APPMODE.CREATE_SHAPES) {
+			evt.target.selected = false;
+			return;
+		}
+		evt.target.selected = false;
+	}
+	function shapeOnMouseDrag(evt) {
+		if (!moveShapes || appMode != APPMODE.CREATE_SHAPES) {
+			evt.target.selected = false;
+			return;
+		}
+		if (evt.event.buttons & MOUSE.LEFT) {
+			evt.target.selected = true;
+			evt.target.translate(evt.delta.divide(project.activeLayer.scaling));
+		}
+	}
+
+
+	function cancelCurrentShapeCreation() {
+		let path = shapes.at(-1); // can be undefined
+		if (!pathInput) {
+			return;
+		}
+		if (path && path.segments.length > 3) {
+			path.removeSegment(path.segments.length - 1);
+		} else {
+			if (shapes.length) {
+				path.remove();
+				shapes.pop();
+			}
+		}
+		pathInput = false;
+	}
+	function cancelCurrentCutlineCreation() {
+		if (!cutLineInput) {
+			return;
+		}
+		if (cutLines.length) {
+			cutLines.at(-1).remove();
+			cutLines.pop();
+		}
+		cutLineInput = false;
+	}
+	function toggleMoveShapesMode(enable=null) {
+		if (enable === null) {
+			enable = !moveShapes;
+		}
+		moveShapes = enable;
+		cancelCurrentShapeCreation();
+		// shapes.forEach(p => {
+		// 	p.selected = false;
+		// 	p.locked = !moveShapes;
+		// });
+	}
 	
+
+
+
+
 
 	function showOpenFileDialog() {
 		document.getElementById('inp_file').click();

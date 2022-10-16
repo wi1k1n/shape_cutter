@@ -1,6 +1,6 @@
 const APPMODE = {
     CREATE_SHAPES: 0,
-    EXPLORE_SHAPES: 1
+    DRAW_CUTLINE: 1
 };
 
 // const MOUSE_DRAG_DST = 5;
@@ -11,7 +11,7 @@ const IMG_PASTE_MIME_TYPES = ['image/png', 'image/jpeg', 'image/bmp'];
 const SCALE_MULTIPLIER = 1.1;
 
 const MOUSE = {
-    LEFT: 0,
+    LEFT: 1,
     RIGHT: 2,
     MIDDLE: 4
 };
@@ -26,6 +26,7 @@ const KEYBOARD = {
     G: 'KeyG',
     SPACE: 'Space',
     ESCAPE: 'Escape',
+    DELETE: 'Delete',
     ONE: 'Digit1',
     TWO: 'Digit2',
     THREE: 'Digit3',
