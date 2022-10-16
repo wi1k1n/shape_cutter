@@ -3,112 +3,256 @@
 <head>
 	<meta charset="utf-8">
 	<title>Shape Cutter</title>
+	<script type="text/javascript" src="js/paper-full.min.js"></script>
 	<style type="text/css">
-		html, body {
+		html, body, #cnv_editor {
 			width: 100%;
 			height: 100%;
 			margin: 0;
 		}
+		canvas[resize] {
+			width: 100%;
+			height: 100%;
+		}
+	.info {
+		position: absolute;
+		background-color: rgba(174, 255, 255, 0.6);
+		padding: 2px 5px;
+		border: 1px solid black;
+	}
+	.info-mouse {
+		right: 0px;
+		top: 0px;
+		text-align: right;
+	}
 	</style>
 </head>
 <body>
 <input type="file" id="inp_file" style="display: none;" accept=".jpg, .jpeg, .png, .bmp">
 <div id="div_canvas">
-    <canvas id="cnv_editor">HTML5 Canvas is not supported in your browser</canvas>
+    <canvas id="cnv_editor" resize>HTML5 Canvas is not supported in your browser</canvas>
 </div>
-<script type="text/javascript" src="js/placeholder.js"></script>
+<div id="divMousePos" class="info info-mouse"></div>
+<script type="text/javascript" src="js/constants.js"></script>
+<script type="text/javascript" src="js/sdk.js"></script>
 <script type="text/javascript">
 (function() {
-	const PASTEIMAGEMIMETYPES = ['image/png', 'image/jpeg', 'image/bmp'];
+	let cnv = document.getElementById('cnv_editor');
+	let divMouse = document.getElementById('divMousePos');
+	paper.install(window);
+	paper.setup(cnv);
+	// project.clear();
 
-	let img = new Image;
-	img.onload = onImageLoaded;
-	img.src = IMG_PLACEHOLDER;
-	let imgOffset = {x: 0, y: 0};
-	let imgScale = {x: 1.0, y: 1.0};
+	let appMode = APPMODE.CREATE_SHAPES;
 
-	const cnv = document.getElementById('cnv_editor');
-	const ctx = cnv.getContext ? cnv.getContext('2d') : null;
-	if (!ctx)
-		return console.error('Could not get canvas context. Exiting...');
-	cnv.focus();
-	// Make canvas clearer
-	const divCnv = document.getElementById('div_canvas');
-	cnv.width = divCnv.clientWidth * 2;
-	cnv.height = divCnv.clientHeight * 2;
-	const w = cnv.width / 2, h = cnv.height / 2;
-	ctx.scale(2, 2);
-	ctx.imageSmoothingEnabled = false;
+	// let layers = {};
+	let shapes = [];
 
-	function redraw() {
-		const sx = -Math.min(imgOffset.x / imgScale.x, 0);
-		const sy = -Math.min(imgOffset.y / imgScale.y, 0);
-		const sw = Math.min((w - imgOffset.x) / imgScale.x, img.width) - sx;
-		const sh = Math.min((h - imgOffset.y) / imgScale.y, img.height) - sy;
-		const dx = Math.max(imgOffset.x, 0);
-		const dy = Math.max(imgOffset.y, 0);
-		const dw = sw * imgScale.x;
-		const dh = sh * imgScale.y;
-		ctx.clearRect(0, 0, w, h);
-		ctx.drawImage(img, sx, sy, sw, sh, dx, dy, dw, dh);
+	let bgImg = new Raster(IMG_PLACEHOLDER).sendToBack();
+	let pathInput = false;
+
+	project.activeLayer.position = view.center;
+	project.activeLayer.applyMatrix = false;
+
+	// Layer initialization
+	// layers[APPMODE.CREATE_SHAPES] = createNewLayer([img], true); // Layer for creating shapes
+	// layers[APPMODE.EXPLORE_SHAPES] = createNewLayer(shapes); // Layer for exploring shapes
+	// console.log(project.layers);
+	// switchAppMode(APPMODE.CREATE_SHAPES); // set default app mode
+
+
+
+
+	// function switchAppMode(mode) {
+	// 	if (!(mode in layers)) {
+	// 		console.error('App mode: ' + mode + ' not found in layers dict!');
+	// 		return;
+	// 	}
+	// 	appMode = mode;
+	// 	let layer = layers[mode];
+
+	// 	// project.activeLayer.visible = false;
+	// 	// project.activeLayer.locked = true;
+	// 	// layer.activate();
+	// 	// layer.visible = true;
+	// 	// layer.locked = false;
+
+	// 	if (mode == APPMODE.CREATE_SHAPES) {
+	// 		layer.addChildren(shapes);
+	// 	} else if (mode == APPMODE.EXPLORE_SHAPES) {
+	// 		layer.addChildren(shapes);
+	// 	}
+	// }
+
+
+	function onMouseWheel(evt) {
+		// console.log(evt);
+		if (appMode == APPMODE.CREATE_SHAPES) {
+			let scaleFactor = Math.pow(SCALE_MULTIPLIER, -Math.sign(evt.deltaY));
+			if (evt.shiftKey) {
+				project.activeLayer.scale(scaleFactor);
+			} else {
+				project.activeLayer.scale(scaleFactor, new Point(evt.x, evt.y));
+			}
+		}
+	}
+	function onMouseClick(evt) {
+		// console.log(evt);
+		if (appMode == APPMODE.CREATE_SHAPES) {
+			if (evt.event.button == MOUSE.LEFT) {
+				let curPoint = project.activeLayer.matrix.inverseTransform(evt.point);
+				if (pathInput) {
+					let path = shapes.at(-1);
+					path.add(curPoint);
+				} else {
+					let path = new Path({
+						segments: [curPoint, curPoint],
+						fillColor: 'rgba(255, 255, 255, 0.00001)',
+						strokeColor: 'red',
+						strokeWidth: 2,
+						closed: true
+					});
+					shapes.push(path);
+					pathInput = true;
+				}
+			}
+		}
+	}
+	function onMouseMove(evt) {
+		let mpoint = project.activeLayer.matrix.inverseTransform(evt.point);
+		divMouse.innerHTML = mpoint.toString();
+		if (appMode == APPMODE.CREATE_SHAPES) {
+			if (pathInput && shapes.length) {
+				let path = shapes.at(-1);
+				path.lastSegment.point = mpoint;
+			}
+		}
+	}
+	function onMouseDrag(evt) {
+		// console.log(evt);
+		if (appMode == APPMODE.CREATE_SHAPES) {
+			if (evt.event.buttons == MOUSE.RIGHT) {
+				project.activeLayer.translate(evt.delta);
+			}
+		}
+	}
+	function onKeyDown(evt) {
+		// console.log(evt.event.code);
+		// console.log(evt);
+		if (appMode == APPMODE.CREATE_SHAPES) {
+			switch (evt.event.code) {
+				case KEYBOARD.O: {
+					if (evt.modifiers.control) { // Ctrl+O
+						preventDefaultEvents(evt.event);
+						showOpenFileDialog();
+					} else { // O
+						project.activeLayer.position = view.center;
+					}
+					break;
+				}
+				case KEYBOARD.SPACE: {
+					if (evt.modifiers.control) { // Ctrl+Space
+						project.activeLayer.fitBounds(view.bounds);
+					} else { // Space
+						project.activeLayer.scaling = new Point(1, 1);
+						project.activeLayer.position = view.center;
+					}
+					break;
+				}
+				case KEYBOARD.ESCAPE: {
+					let path = shapes.at(-1); // can be undefined
+					if (pathInput && path && path.segments.length > 3) {
+						path.removeSegment(path.segments.length - 1);
+					} else {
+						if (shapes.length) {
+							path.remove();
+							shapes.pop();
+						}
+					}
+					pathInput = false;
+					break;
+				}
+				case KEYBOARD.C: {
+					// same as Escape but removes all shapes at once
+					shapes.forEach(p => p.remove());
+					shapes = [];put = false;
+					break;
+				}
+				case KEYBOARD.B: {
+					bgImg.visible = !bgImg.visible;
+					break;
+				}
+				default: {
+					break;
+				}
+			}
+		}	
+		switch (evt.event.code) {
+			case KEYBOARD.ONE: {
+				switchAppMode(APPMODE.CREATE_SHAPES);
+				break;
+			}
+			case KEYBOARD.TWO: {
+				switchAppMode(APPMODE.EXPLORE_SHAPES);
+				break;
+			}
+			default: break;
+		}
 	}
 
-	// when user selects file
+	// EventListeners
+	paper.view.onClick = onMouseClick;
+	paper.view.onMouseMove = onMouseMove;
+	paper.view.onMouseDrag = onMouseDrag;
+	paper.view.onKeyDown = onKeyDown;
+	cnv.addEventListener('wheel', onMouseWheel);
+	window.addEventListener("paste", onImagePaste, false);
+	document.oncontextmenu = preventDefaultEvents;
+	cnv.oncontextmenu = preventDefaultEvents;
+	document.getElementById('inp_file').onchange = inp_fileOnChange;  // open new file
+	
+	
+
+	// function createNewLayer(children, active=false) {
+	// 	let layer = project.addLayer(new Layer(children));
+	// 	layer.position = view.center;
+	// 	layer.locked = !active;
+	// 	layer.visible = active;
+	// 	layer.applyMatrix = false;
+	// 	return layer;
+	// }
+	
+
+	function showOpenFileDialog() {
+		document.getElementById('inp_file').click();
+	}
 	function inp_fileOnChange(e) {
 		if (!e.target.files || !e.target.files.length) return;
-		img.onload = onImageLoaded;
-		img.src = URL.createObjectURL(e.target.files[0]);
+		bgImg.source = URL.createObjectURL(e.target.files[0]);
 	}
-	function onImageLoaded() {
-		console.log('onImageLoaded()');
-		redraw();
-	}
-	// triggers when user pastes image from clipboard
-	function onImagePaste(evt) {
+	function onImagePaste(evt) { // triggers when user pastes image from clipboard
 		// console.log(evt.clipboardData.getData('image/png'));
 		navigator.clipboard.read().then(cis => {
 			for (const ci of cis) {
 				// console.log(ci);
 				for (const type of ci.types) {
-					if (!PASTEIMAGEMIMETYPES.includes(type)) continue;
+					if (!IMG_PASTE_MIME_TYPES.includes(type)) continue;
 					// console.log('Trying type ', type);
 					ci.getType(type).then(x => {
 						// console.log('Got: ', x);
-						img.src = URL.createObjectURL(x);
+						bgImg.source = URL.createObjectURL(x);
 					}).catch(e => console.log('getType() => ', e));
 					break;
 				}
 			}
 		}).catch(e => console.log('read() =>', e));
 	}
-	(function initializeEventHandlers() {
-		document.getElementById('inp_file').onchange = inp_fileOnChange;  // open new file
-		window.addEventListener("paste", onImagePaste, false);
-
-		// cnv.onmousedown = cnvOnMouseDown;
-		// cnv.onmouseup = cnvOnMouseUp;
-		// cnv.onmousemove = cnvOnMouseMove;
-		// cnv.onwheel = cnvOnWheel;
-		// document.onkeydown = cnvOnKeyDown;
-		// document.onkeyup = cnvOnKeyUp;
-		// document.oncontextmenu = preventDefaultEvents;
-		// cnv.oncontextmenu = preventDefaultEvents;
-
-		// divHelp.onclick = divHelpOnClick;
-	})();
-	// document.onpaste = function(pasteEvent) {
-	// 	// consider the first item (can be easily extended for multiple items)
-	// 	var item = pasteEvent.clipboardData.items[0];
-	// 	if (item.type.indexOf("image") === 0)
-	// 	{
-	// 		var blob = item.getAsFile();
-	// 		var reader = new FileReader();
-	// 		reader.onload = function(event) {
-	// 			document.getElementById("imgContainer").src = event.target.result;
-	// 		};
-	// 		reader.readAsDataURL(blob);
-	// 	}
-	// }
+	function preventDefaultEvents(evt) {
+		if (evt.preventDefault != undefined)
+			evt.preventDefault();
+		if (evt.stopPropagation != undefined)
+			evt.stopPropagation();
+	}
 })();
 </script>
 </body>
