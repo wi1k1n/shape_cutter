@@ -3,7 +3,7 @@
 <head>
 	<meta charset="utf-8">
 	<title>Shape Cutter</title>
-	<script type="text/javascript" src="js/paper-full.min.js"></script>
+	<script type="text/javascript" src="js/paper-full.js"></script>
 	<style type="text/css">
 		html, body, #cnv_editor {
 			width: 100%;
@@ -94,16 +94,37 @@
 		}
 	}
 
-
+	function moveShapesGetSelectedShape() {
+		return shapes.filter(p => p.selected).at(0);
+	}
 	function onMouseWheel(evt) {
 		// console.log(evt);
+		const mousePoint = new Point(evt.x, evt.y);
+		let mWheelOverloaded = false;
+		if (appMode == APPMODE.CREATE_SHAPES) {
+			if (moveShapes) {
+				if (evt.altKey) {
+					mWheelOverloaded = true;
+					let sShape = moveShapesGetSelectedShape();
+					if (sShape) {
+						if (evt.shiftKey) {
+							sShape.rotate(SHAPE_ROTATE_SPEED * Math.sign(evt.deltaY), mousePoint);
+						} else {
+							sShape.rotate(SHAPE_ROTATE_SPEED * Math.sign(evt.deltaY));
+						}
+					}
+				}
+			}
+		}
 		if (appMode == APPMODE.CREATE_SHAPES
 		 || appMode == APPMODE.DRAW_CUTLINE) {
-			let scaleFactor = Math.pow(SCALE_MULTIPLIER, -Math.sign(evt.deltaY));
-			if (evt.shiftKey) {
-				project.activeLayer.scale(scaleFactor);
-			} else {
-				project.activeLayer.scale(scaleFactor, new Point(evt.x, evt.y));
+			if (!mWheelOverloaded) {
+				let scaleFactor = Math.pow(SCALE_MULTIPLIER, -Math.sign(evt.deltaY));
+				if (evt.shiftKey) {
+					project.activeLayer.scale(scaleFactor);
+				} else {
+					project.activeLayer.scale(scaleFactor, mousePoint);
+				}
 			}
 		}
 	}
@@ -127,6 +148,7 @@
 							strokeWidth: 2,
 							closed: true,
 							locked: false,
+							applyMatrix: false,
 							onMouseEnter: shapeOnMouseEnter,
 							onMouseLeave: shapeOnMouseLeave,
 							onMouseDrag: shapeOnMouseDrag,
@@ -144,7 +166,8 @@
 						segments: [curPoint, curPoint],
 						fillColor: 'rgba(255, 255, 255, 0.00001)',
 						strokeColor: 'orange',
-						strokeWidth: 2
+						strokeWidth: 2,
+						applyMatrix: false,
 					});
 					cutLines.push(path);
 					cutLineInput = true;
@@ -209,6 +232,7 @@
 					} else { // Space
 						project.activeLayer.scaling = new Point(1, 1);
 						project.activeLayer.position = view.center;
+						// project.activeLayer.position = new Point();
 					}
 					break;
 				}
@@ -229,27 +253,28 @@
 					}
 					break;
 				}
-				case KEYBOARD.DELETE: {
+				case KEYBOARD.R: {
 					if (moveShapes) {
-						for (let i = 0; i < shapes.length; i++) {
-							let p = shapes[i];
-							if (!p.selected) {
-								continue;
+						if (evt.modifiers.alt) {
+							let sShape = moveShapesGetSelectedShape();
+							if (sShape) {
+								sShape.rotation = 0;
 							}
-							p.remove();
-							shapes.splice(i--, 1);
-						}
-						shapes.filter(p => p.selected).forEach(p => {
-							p.remove();
-						});
-						if (!shapes.length) {
-							toggleMoveShapesMode(false);
 						}
 					}
 					break;
 				}
-				case KEYBOARD.B: {
-					bgImg.visible = !bgImg.visible;
+				case KEYBOARD.DELETE: {
+					if (moveShapes) {
+						let removedIds = shapes.map((p, i) => [p, i]).filter(t => t[0].selected).map(t => {
+							t[0].remove();
+							return t[1];
+						});
+						shapes = shapes.filter((p, i) => !removedIds.includes(i));
+						if (!shapes.length) {
+							toggleMoveShapesMode(false);
+						}
+					}
 					break;
 				}
 				default: {
@@ -257,7 +282,6 @@
 				}
 			}
 		}
-		
 		if (appMode == APPMODE.DRAW_CUTLINE) {
 			switch(evt.event.code) {
 				case KEYBOARD.ESCAPE: {
@@ -270,6 +294,10 @@
 					cutLineInput = false;
 					break;
 				}
+				case KEYBOARD.S: {
+					let p = shapes[0].divide(cutLines[0]);
+					p.fillColor = 'rgba(255, 0, 0, 1)';
+				}
 				default: {
 					break;
 				}
@@ -277,6 +305,10 @@
 		}
 		// Common for all app modes
 		switch (evt.event.code) {
+			case KEYBOARD.B: {
+				bgImg.visible = !bgImg.visible;
+				break;
+			}
 			case KEYBOARD.ONE: {
 				switchAppMode(APPMODE.CREATE_SHAPES);
 				break;

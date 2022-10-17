@@ -1,0 +1,102 @@
+<DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <title>Shape Cutter - Intersection Test</title>
+        <script type="text/javascript" src="js/sdk.js"></script>
+        <script type="text/javascript" src="../js/paper-full.js"></script>
+        <style type="text/css">
+            html, body {
+                width: 100%;
+                height: 100%;
+                margin: 0;
+            }
+        </style>
+    </head>
+    <body>
+    <div id="tilda" class="tilda" style="display: none;"></div>
+    <div id="result">
+    </div>
+    
+    <script type="text/javascript">
+        const SHAPE_SCALE = 250;
+        // must be defined in a sequential order!
+        // const PTS = [[0, 0], [134.75, 0], [134.75, 269.5], [0, 217.69]];
+        // const PTS = [[0, 0], [-1, 0], [-2, 1], [-3, 0], [-4, 2], [0, 2]].map(x => scale(SHAPE_SCALE, x));
+        // const PTS = [[0, 0], [-1, 0], [-2, 1], [-3, 0], [-5, -1], [-6, 0], [-5, 1], [-4, 0], [-3.5, 0.2], [-5, 2], [0, 2]].map(x => scale(SHAPE_SCALE, x));
+        function generatePTS() {
+            let dir = [0, 1];
+            let r = 1;
+            let curPoint = [0, 0];
+            let shape = [];
+            let n = [0, 0, 1];
+            for (let i = 0; i < 5; ++i) {
+                let r = normalize(cross(dir.concat([0]), n).splice(0, 2));
+                let c = scale(.5, r);
+                shape.push(add(curPoint, c));
+                shape.splice(0, 0, add(curPoint, negate(c)));
+                curPoint = add(curPoint, dir);
+                dir = scale(Math.floor(i / 2) + 2, r);
+            }
+            return shape;
+        }
+        // const PTS = generatePTS();
+        const PTS = [[1, 0], [1, 1], [-1, 1], [-1, 0.3], [-0.5, 0.5], [0, 0.2]].map(x => scale(SHAPE_SCALE, x));
+        let pts = PTS.slice();
+    
+        const cnv = document.createElement('canvas');
+        cnv.width = window.innerWidth;
+        cnv.height = window.innerHeight;
+        document.getElementById('result').appendChild(cnv);
+        paper.install(window);
+	    paper.setup(cnv);
+
+        let shape = new Path({
+            segments: PTS,
+            strokeColor: 'red',
+            fillColor: 'rgba(255, 0, 0, 0.1)',
+            strokeWidth: 2,
+            closed: true,
+        });
+        let cutLine = new Path({
+            segments: [[0, 0], [1, 1.2], [0.9999999, 1.2], [-0.0000001, 0]].map(x => scale(SHAPE_SCALE, x)),
+            strokeColor: 'orange',
+            strokeWidth: 2
+        })
+
+        project.activeLayer.position = view.center;
+
+        let nShape = shape.divide(cutLine);
+        shape.visible = false;
+        // nShape.selected = true;
+        // nShape.onMouseDrag = onPDrag;
+        let subShapes = [];
+        nShape.children.forEach(p => {
+            subShapes.push(new Path({
+                segments: p.segments,
+                strokeColor: 'blue',
+                fillColor: 'rgba(0, 0, 255, 0.05)',
+                strokeWidth: 1,
+                closed: true,
+                onMouseDrag: onPDrag
+            }));
+            // // console.log(p);
+            // // p.onMouseDrag = onPDrag;
+            // p.onMouseEnter = function(e) {
+            //     console.log(p);
+            //     p.selected = true;
+            // };
+            // p.onMouseLeave = function(e) {
+            //     p.selected = false;
+            // };
+            // p.fillColor = 'rgba(0, 255, 0, 0.1)';
+            // p.visible = true;
+        });
+        nShape.remove();
+        function onPDrag(evt) {
+            evt.target.translate(evt.delta.divide(project.activeLayer.scaling));
+        }
+        // console.log(nShape);
+    </script>
+    </body>
+    </html>

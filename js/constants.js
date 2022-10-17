@@ -48,3 +48,5 @@ const KEYBOARD = {
     NINE_NUM: 'Numpad9',
     ZERO_NUM: 'Numpad0',
 }
+
+const SHAPE_ROTATE_SPEED = 1;
