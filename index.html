@@ -165,14 +165,29 @@
 		cutLineInput = false;
 	}
 
+	function getClosestDirection90(vect, base=0) {
+		// returns vector of the closest direction from [0, pi/2, pi, 3pi/2]
+		// base - is a shift for basis, e.g. if base==45, the [0, pi/2, pi, 3pi/2]-return would correspond to [pi/4, 3pi/4, 5pi/4, 7pi/4]
+		// TODO: move to the utils part
+		const v = vect.rotate(45 + base);
+		const d = v.quadrant % 2;
+		const m = v.quadrant < 3 ? 1 : -1;
+		return new Point(m * d, m * (d + 1) % 2);
+	}
+	function getClosestDirection45(vect) {
+		// same as getClosestDirection90, but with pi/4 options as well
+		// TODO: move to the utils part
+		const axis = getClosestDirection90(vect);
+		const axisRot = getClosestDirection90(vect, 45).rotate(-45);
+		return axis.dot(vect) > axisRot.dot(vect) ? axis : axisRot;
+	}
+
 	function cutShapesWithLines(cLines) {
 		const CLEPS = 1e-5;
 
 		let cutLines = cLines.map(cl => {
-			let rotCl = cl.segments[1].point.subtract(cl.segments[0].point);
-			rotCl.rotate(45);
-			// adjust more vertical lines horizontally, and more horizontal lines vertically
-			const addPoint = rotCl.quadrant % 2 ? new Point(0, CLEPS) : new Point(CLEPS, 0);
+			const axis = getClosestDirection90(cl.segments[1].point.subtract(cl.segments[0].point));
+			const addPoint = new Point(-axis.y, axis.x).multiply(CLEPS);
 			return new Path({
 				segments: [cl.segments[0].point, cl.segments[1].point, cl.segments[1].point.add(addPoint), cl.segments[0].point.add(addPoint)],
 				closed: true
@@ -309,7 +324,13 @@
 		} else if (appMode == APPMODE.DRAW_CUTLINE) {
 			if (cutLineInput && cutLines.length) {
 				let line = cutLines.at(-1);
-				line.lastSegment.point = mpoint;
+				if (evt.modifiers.shift) {
+					const v = mpoint.subtract(line.firstSegment.point);
+					const axis = getClosestDirection45(v);
+					line.lastSegment.point = line.firstSegment.point.add(axis.multiply(v.length));
+				} else {
+					line.lastSegment.point = mpoint;
+				}
 			}
 		}
 	}
