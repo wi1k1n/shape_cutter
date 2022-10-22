@@ -59,7 +59,7 @@
             closed: true,
         });
         let cutLine = new Path({
-            segments: [[0, 0], [1, 1.2], [0.9999999, 1.2], [-0.0000001, 0]].map(x => scale(SHAPE_SCALE, x)),
+            segments: [[0, 0], [2, 1.2], [1.9999999, 1.2], [-0.0000001, 0]].map(x => scale(SHAPE_SCALE, x)),
             strokeColor: 'orange',
             strokeWidth: 2
         })
@@ -67,32 +67,30 @@
         project.activeLayer.position = view.center;
 
         let nShape = shape.divide(cutLine);
+        nShape.remove();
         shape.visible = false;
         // nShape.selected = true;
         // nShape.onMouseDrag = onPDrag;
         let subShapes = [];
         nShape.children.forEach(p => {
-            subShapes.push(new Path({
+            let nPath = new Path({
                 segments: p.segments,
                 strokeColor: 'blue',
                 fillColor: 'rgba(0, 0, 255, 0.05)',
                 strokeWidth: 1,
                 closed: true,
                 onMouseDrag: onPDrag
-            }));
-            // // console.log(p);
-            // // p.onMouseDrag = onPDrag;
-            // p.onMouseEnter = function(e) {
-            //     console.log(p);
-            //     p.selected = true;
-            // };
-            // p.onMouseLeave = function(e) {
-            //     p.selected = false;
-            // };
-            // p.fillColor = 'rgba(0, 255, 0, 0.1)';
-            // p.visible = true;
+            });
+            let intersect = nPath.intersect(cutLine, false);
+            intersect.remove();
+            console.log(p.segments.length, intersect.area);
+            if (intersect.area > 1e-7) {
+                // nPath.remove();
+                nPath.visible = false;
+                return;
+            }
+            subShapes.push(nPath);
         });
-        nShape.remove();
         function onPDrag(evt) {
             evt.target.translate(evt.delta.divide(project.activeLayer.scaling));
         }
