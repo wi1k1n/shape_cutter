@@ -17,7 +17,7 @@ Originally the idea of this toolset is to help estimating and searching for best
 - Optimizing multiple cuts
 - ~~GUI help -> make terminal functional~~ Upd: not related anymore
 - GUI instead of drawing closed poly, draw it smarter: closed segment with gray dashed line, and a separate color for the last segment (to cursor)
-	- Get rid of self-intersections
+	- Get rid of self-intersections!
 	- Probably draw vertices as well (custom 'selected' state instead of the default one)
 - ~~Add 'm' for moving shapes, 'del' for deleting them (instead of Esc, which should be only used for stopping current shape)~~
 	- Show selected shape (more than just .selected = true)

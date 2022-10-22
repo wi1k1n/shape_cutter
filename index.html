@@ -182,10 +182,40 @@
 		return axis.dot(vect) > axisRot.dot(vect) ? axis : axisRot;
 	}
 
-	function cutShapesWithLines(cLines) {
+	function createShape(segments, attrs={}) {
+		let shape = new Path({
+			segments: segments,
+			fillColor: 'rgba(255, 255, 255, 0.00001)',
+			strokeColor: 'red',
+			strokeWidth: 2,
+			closed: true,
+			locked: false,
+			applyMatrix: false,
+			onMouseEnter: shapeOnMouseEnter,
+			onMouseLeave: shapeOnMouseLeave,
+			onMouseDrag: shapeOnMouseDrag,
+			onMouseMove: shapeOnMouseMove,
+		});
+		Object.keys(attrs).forEach(k => {
+			shape[k] = attrs[k];
+		});
+		return shape;
+	}
+	
+	function cutShapesWithLines(_shapes, _cutLines) {
+		if (!_shapes || !_shapes.length || !_cutLines || !_cutLines.length) {
+			return _shapes;
+		}
 		const CLEPS = 1e-5;
 
-		let cutLines = cLines.map(cl => {
+		// create temporary layer and move there shapes and cutting lines
+		let curActiveLayer = project.activeLayer;
+		let layer = new Layer();
+		_shapes = _shapes.map(sh => sh.addTo(layer));
+		_cutLines = _cutLines.map(cl => cl.addTo(layer));
+
+		// Extend cutlines to be thin parallelogramms (as a workaround for paperjs to not divide shapes with lines)
+		let cutLines = _cutLines.map(cl => {
 			const axis = getClosestDirection90(cl.segments[1].point.subtract(cl.segments[0].point));
 			const addPoint = new Point(-axis.y, axis.x).multiply(CLEPS);
 			return new Path({
@@ -193,44 +223,51 @@
 				closed: true
 			});
 		});
-		
-		let subShapes = [];
-        shapes.forEach(shape => {
-			cutLines.forEach(cl => {
-				let nsh = shape.divide(cl);
-				nsh.remove();
-				nsh.children.forEach(ssh => {
-					let nnsh = new Path({
-						segments: ssh.segments,
-						fillColor: 'rgba(255, 255, 255, 0.00001)',
-						strokeColor: 'red',
-						strokeWidth: 2,
-						closed: true,
-						locked: false,
-						applyMatrix: false,
-						onMouseEnter: shapeOnMouseEnter,
-						onMouseLeave: shapeOnMouseLeave,
-						onMouseDrag: shapeOnMouseDrag,
-						onMouseMove: shapeOnMouseMove,
-					});
-					let intersect = nnsh.intersect(cl, false);
-					intersect.remove();
-					// console.log(p.segments.length, intersect.area);
-					if (intersect.area > 1e-7) {
-						nnsh.remove();
-						nnsh.visible = false;
-						return;
-					}
-					subShapes.push(nnsh);
-				})
-				
-				// nsh.remove();
+
+		function cutShapeWithLine(shape, cutLine) {
+			let newShape = shape.divide(cutLine);
+			newShape.remove();
+			if (!newShape.children) {
+				return [shape];
+			}
+			let returnSubShapes = [];
+			newShape.children.forEach(subNewShape => {
+				let newCreatedSubShape = createShape(subNewShape.segments);
+				// Cleanup leftovers, that correspond to the cutLine parallelogramm sections
+				let intersect = newCreatedSubShape.intersect(cutLine, false);
+				intersect.remove();
+				if (intersect.area > CLEPS * CLEPS * 10) {
+					newCreatedSubShape.remove();
+					return;
+				}
+				returnSubShapes.push(newCreatedSubShape);
 			});
 			shape.remove();
+			return returnSubShapes;
+		}
+
+		let shapes = _shapes.map(sh => sh);
+		cutLines.forEach(curCutLine => {
+			let subShapes = [];
+			while (shapes.length) {
+				let curShape = shapes.splice(0, 1).at(0);
+				let sShapes = cutShapeWithLine(curShape, curCutLine);
+				subShapes = subShapes.concat(sShapes);
+			}
+			shapes = subShapes.map(ssh => ssh);
 		});
-		shapes = subShapes;
-		// let p = shapes[0].divide(cutLines[0]);
-		// p.fillColor = 'rgba(255, 0, 0, 1)';
+
+		// remove parallelogrammized cutlines
+		cutLines.forEach(cl => cl.remove());
+
+		// return shapes and cutlines back to previously active layer
+		shapes.forEach(sh => sh.addTo(curActiveLayer));
+		_cutLines.forEach(cl => cl.addTo(curActiveLayer));
+
+		layer.remove();
+		project.activate(curActiveLayer);
+
+		return shapes;
 	}
 
 
@@ -278,19 +315,7 @@
 						let path = shapes.at(-1);
 						path.add(curPoint);
 					} else {
-						let path = new Path({
-							segments: [curPoint, curPoint],
-							fillColor: 'rgba(255, 255, 255, 0.00001)',
-							strokeColor: 'red',
-							strokeWidth: 2,
-							closed: true,
-							locked: false,
-							applyMatrix: false,
-							onMouseEnter: shapeOnMouseEnter,
-							onMouseLeave: shapeOnMouseLeave,
-							onMouseDrag: shapeOnMouseDrag,
-							onMouseMove: shapeOnMouseMove
-						});
+						let path = createShape([curPoint, curPoint]);
 						shapes.push(path);
 						pathInput = true;
 					}
@@ -421,7 +446,8 @@
 					break;
 				}
 				case KEYBOARD.S: {
-					cutShapesWithLines(cutLines);
+					shapes = cutShapesWithLines(shapes, cutLines);
+					break;
 				}
 				default: {
 					break;
