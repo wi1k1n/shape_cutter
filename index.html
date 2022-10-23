@@ -205,6 +205,8 @@
 			fillColor: 'rgba(255, 255, 255, 0.00001)',
 			strokeColor: 'red',
 			strokeWidth: 2,
+			strokeCap: 'round',
+			strokeJoin: 'round',
 			closed: true,
 			locked: false,
 			applyMatrix: false,
@@ -296,6 +298,53 @@
 		return shapes;
 	}
 
+	function findSmallestBBOX(_shapes, returnRotation=true) {
+		let shapes = _shapes;
+		// only calculate for the selected shape
+		let sShape = moveShapesGetSelectedShape();
+		if (sShape) {
+			shapes = [sShape];
+		}
+
+		const DEEPNESS = 3;
+		const STARTSTEP = 1;
+		let bestRotations = shapes.map(shape => {
+			const originalPosition = shape.position;
+			const originalRotation = shape.rotation;
+			let curStep = STARTSTEP;
+			const N = 90 / STARTSTEP;
+			shape.rotation = 0;
+			function getShapeBBOXMetric(shape) {
+				return Math.max(shape.bounds.width, shape.bounds.height);
+			}
+			let bestRot = {
+				rotation: shape.rotation,
+				metric: getShapeBBOXMetric(shape)
+			};
+
+			for (let k = 0; k < DEEPNESS; ++k) {
+				for (let i = 0; i < N; ++i) {
+					shape.rotate(curStep);
+					const metric = getShapeBBOXMetric(shape);
+					if (metric < bestRot.metric) {
+						bestRot.rotation = shape.rotation;
+						bestRot.metric = metric;
+					}
+				}
+				curStep *= .5;
+				shape.rotation = bestRot.rotation;
+				shape.rotate(-curStep * N / 2);
+			}
+			if (returnRotation) {
+				shape.rotation = originalRotation;
+			}
+			shape.position = originalPosition;
+
+			return bestRot;
+		});
+
+		console.log(bestRotations);
+	}
 
 	function onMouseWheel(evt) {
 		// console.log(evt);
@@ -447,17 +496,23 @@
 					deleteAllShapes();
 					break;
 				}
+				case KEYBOARD.R: {
+					if (moveShapes) {
+						if (evt.modifiers.alt) {
+							resetSelectedShapeRotation();
+						}
+					}
+					break;
+				}
 				case KEYBOARD.M: {
 					if (shapes.length) {
 						toggleMoveShapesMode();
 					}
 					break;
 				}
-				case KEYBOARD.R: {
-					if (moveShapes) {
-						if (evt.modifiers.alt) {
-							resetSelectedShapeRotation();
-						}
+				case KEYBOARD.Q: {
+					if (shapes.length) {
+						findSmallestBBOX(shapes, false);
 					}
 					break;
 				}
@@ -507,6 +562,7 @@
 			}
 			default: break;
 		}
+		layerMain.activate();
 	}
 
 	// EventListeners

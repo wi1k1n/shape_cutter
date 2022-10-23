@@ -24,6 +24,7 @@ const KEYBOARD = {
     S: 'KeyS',
     M: 'KeyM',
     G: 'KeyG',
+    Q: 'KeyQ',
     SPACE: 'Space',
     ESCAPE: 'Escape',
     DELETE: 'Delete',
