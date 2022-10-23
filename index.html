@@ -35,6 +35,7 @@
 <div id="divMousePos" class="info info-mouse"></div>
 <script type="text/javascript" src="js/constants.js"></script>
 <script type="text/javascript" src="js/sdk.js"></script>
+<script type="text/javascript" src="js/ui.js"></script>
 <script type="text/javascript">
 (function() {
 	let cnv = document.getElementById('cnv_editor');
@@ -42,8 +43,20 @@
 	paper.install(window);
 	paper.setup(cnv);
 	// project.clear();
-	project.activeLayer.position = view.center;
-	project.activeLayer.applyMatrix = false;
+
+	let layerMain = project.activeLayer;
+	layerMain.position = view.center;
+	layerMain.applyMatrix = false;
+
+	// UI layer
+	let layerUI = new Layer();
+	let btn1 = new UIButton({
+		content: 'Click on me',
+		position: [50, 50],
+		size: [50, 30]
+	});
+
+	layerMain.activate();
 
 	let appMode = APPMODE.CREATE_SHAPES;
 	const navigationAllowed = appMode == APPMODE.CREATE_SHAPES
@@ -182,6 +195,10 @@
 		return axis.dot(vect) > axisRot.dot(vect) ? axis : axisRot;
 	}
 
+	function mouseIsOverUI(evt) {
+		return layerUI.hitTest(evt.point);
+	}
+
 	function createShape(segments, attrs={}) {
 		let shape = new Path({
 			segments: segments,
@@ -202,7 +219,7 @@
 		return shape;
 	}
 	
-	function cutShapesWithLines(_shapes, _cutLines) {
+	function cutShapesWithLines(_shapes, _cutLines, extendCutLines=true) {
 		if (!_shapes || !_shapes.length || !_cutLines || !_cutLines.length) {
 			return _shapes;
 		}
@@ -218,8 +235,17 @@
 		let cutLines = _cutLines.map(cl => {
 			const axis = getClosestDirection90(cl.segments[1].point.subtract(cl.segments[0].point));
 			const addPoint = new Point(-axis.y, axis.x).multiply(CLEPS);
+			
+			let segments = [cl.segments[0].point, cl.segments[1].point];
+			if (extendCutLines) {
+				let l = layer.bounds.width + layer.bounds.height; // diagonal could be enough, but w + h just easier to calculate
+				let v = cl.segments[1].point.subtract(cl.segments[0].point).normalize(l);
+				segments = [cl.segments[0].point.subtract(v), cl.segments[1].point.add(v)]; // prolong start and end points
+			}
+			
+			segments = segments.concat([segments[1].add(addPoint), segments[0].add(addPoint)]);
 			return new Path({
-				segments: [cl.segments[0].point, cl.segments[1].point, cl.segments[1].point.add(addPoint), cl.segments[0].point.add(addPoint)],
+				segments: segments,
 				closed: true
 			});
 		});
@@ -302,10 +328,12 @@
 			}
 		}
 	}
-	function onMouseClick(evt) {
-	}
+	function onMouseClick(evt) {}
 	function onMouseDown(evt) {
 		// console.log(evt);
+		if (mouseIsOverUI(evt)) {
+			return;
+		}
 		let curPoint = project.activeLayer.matrix.inverseTransform(evt.point);
 		// let curPoint = view.getEventPoint(evt.event);
 		if (appMode == APPMODE.CREATE_SHAPES) {
@@ -338,6 +366,9 @@
 		}
 	}
 	function onMouseMove(evt) {
+		if (mouseIsOverUI(evt)) {
+			return;
+		}
 		let mpoint = project.activeLayer.matrix.inverseTransform(evt.point);
 		// let mpoint = view.getEventPoint(evt.event);
 		divMouse.innerHTML = mpoint.toString();
@@ -360,6 +391,9 @@
 		}
 	}
 	function onMouseUp(evt) {
+		if (mouseIsOverUI(evt)) {
+			return;
+		}
 		function MUP(c) { return Math.floor(Math.log2(c)); }
 		// !!! evt.event.buttons property doesn't contain the button that triggered an event. Use evt.event.button insted !!!
 		let mpoint = project.activeLayer.matrix.inverseTransform(evt.point);
@@ -371,6 +405,9 @@
 		}
 	}
 	function onMouseDrag(evt) {
+		if (mouseIsOverUI(evt)) {
+			return;
+		}
 		onMouseMove(evt);
 		// console.log(evt);
 		if (appMode == APPMODE.CREATE_SHAPES
@@ -550,6 +587,10 @@
 		if (evt.stopPropagation != undefined)
 			evt.stopPropagation();
 	}
+
+
+
+
 })();
 </script>
 </body>
