@@ -116,8 +116,11 @@
 		project.activeLayer.position = view.center;
 	}
 
-	function moveShapesGetSelectedShape() {
-		return shapes.filter(p => p.selected).at(0);
+	function getSelectedShapes() {
+		return shapes.filter(p => p.selected);
+	}
+	function getSelectedShape() {
+		return getSelectedShapes().at(0); // returns undefined if empty
 	}
 
 	function deleteSelectedShape() {
@@ -144,11 +147,19 @@
 		cutLineInput = false;
 	}
 
-	function resetSelectedShapeRotation() {
-		let sShape = moveShapesGetSelectedShape();
-		if (sShape) {
-			sShape.rotation = 0;
-		}
+	function resetShapesRotation(_shapes) {
+		_shapes.forEach(sh => sh.rotate(-sh.rotation, project.activeLayer.matrix.inverseTransform(sh.bounds.center)));
+	}
+	function resetShapesPosition(_shapes) {
+		_shapes.forEach(sh => sh.position = new Point());
+	}
+	function rotateShape(shape, rot) {
+		// normaly shapes have pivot point set to 0, hence rotation requires to explicitly set the pivot point
+		shape.rotate(rot, shape.bounds.center);
+	}
+	function rotateShapeToAngle(shape, angle) {
+		// same as rotateShape, but instead of delta, takes an absolute angle to rotate to
+		rotateShape(shape, angle - shape.rotation);
 	}
 
 	function cancelCurrentShapeCreation() {
@@ -202,6 +213,7 @@
 	function createShape(segments, attrs={}) {
 		let shape = new Path({
 			segments: segments,
+			pivot: new Point(),
 			fillColor: 'rgba(255, 255, 255, 0.00001)',
 			strokeColor: 'red',
 			strokeWidth: 2,
@@ -221,11 +233,31 @@
 		return shape;
 	}
 	
+	function cutShapeWithLine(shape, cutLine) {
+		let newShape = shape.divide(cutLine);
+		newShape.remove();
+		if (!newShape.children) {
+			return [shape];
+		}
+		let returnSubShapes = [];
+		newShape.children.forEach(subNewShape => {
+			let newCreatedSubShape = createShape(subNewShape.segments);
+			// Cleanup leftovers, that correspond to the cutLine parallelogramm sections
+			let intersect = newCreatedSubShape.intersect(cutLine, false);
+			intersect.remove();
+			if (intersect.area > CLEPS * CLEPS * 10) {
+				newCreatedSubShape.remove();
+				return;
+			}
+			returnSubShapes.push(newCreatedSubShape);
+		});
+		shape.remove();
+		return returnSubShapes;
+	}
 	function cutShapesWithLines(_shapes, _cutLines, extendCutLines=true) {
 		if (!_shapes || !_shapes.length || !_cutLines || !_cutLines.length) {
 			return _shapes;
 		}
-		const CLEPS = 1e-5;
 
 		// create temporary layer and move there shapes and cutting lines
 		let curActiveLayer = project.activeLayer;
@@ -252,28 +284,6 @@
 			});
 		});
 
-		function cutShapeWithLine(shape, cutLine) {
-			let newShape = shape.divide(cutLine);
-			newShape.remove();
-			if (!newShape.children) {
-				return [shape];
-			}
-			let returnSubShapes = [];
-			newShape.children.forEach(subNewShape => {
-				let newCreatedSubShape = createShape(subNewShape.segments);
-				// Cleanup leftovers, that correspond to the cutLine parallelogramm sections
-				let intersect = newCreatedSubShape.intersect(cutLine, false);
-				intersect.remove();
-				if (intersect.area > CLEPS * CLEPS * 10) {
-					newCreatedSubShape.remove();
-					return;
-				}
-				returnSubShapes.push(newCreatedSubShape);
-			});
-			shape.remove();
-			return returnSubShapes;
-		}
-
 		let shapes = _shapes.map(sh => sh);
 		cutLines.forEach(curCutLine => {
 			let subShapes = [];
@@ -298,22 +308,16 @@
 		return shapes;
 	}
 
-	function findSmallestBBOX(_shapes, returnRotation=true) {
+	function findSmallestBBOX(_shapes, reverseRotation=true) {
 		let shapes = _shapes;
-		// only calculate for the selected shape
-		let sShape = moveShapesGetSelectedShape();
-		if (sShape) {
-			shapes = [sShape];
-		}
-
 		const DEEPNESS = 3;
 		const STARTSTEP = 1;
 		let bestRotations = shapes.map(shape => {
-			const originalPosition = shape.position;
+			const originalBoundsCenter = shape.bounds.center;
 			const originalRotation = shape.rotation;
 			let curStep = STARTSTEP;
 			const N = 90 / STARTSTEP;
-			shape.rotation = 0;
+			rotateShapeToAngle(shape, 0);
 			function getShapeBBOXMetric(shape) {
 				return Math.max(shape.bounds.width, shape.bounds.height);
 			}
@@ -324,7 +328,7 @@
 
 			for (let k = 0; k < DEEPNESS; ++k) {
 				for (let i = 0; i < N; ++i) {
-					shape.rotate(curStep);
+					rotateShape(shape, curStep);
 					const metric = getShapeBBOXMetric(shape);
 					if (metric < bestRot.metric) {
 						bestRot.rotation = shape.rotation;
@@ -332,13 +336,13 @@
 					}
 				}
 				curStep *= .5;
-				shape.rotation = bestRot.rotation;
-				shape.rotate(-curStep * N / 2);
+				rotateShapeToAngle(shape, bestRot.rotation - curStep * N / 2);
+				
 			}
-			if (returnRotation) {
-				shape.rotation = originalRotation;
+			if (reverseRotation) {
+				rotateShapeToAngle(shape, originalRotation);
 			}
-			shape.position = originalPosition;
+			shape.translate(originalBoundsCenter.subtract(shape.bounds.center));
 
 			return bestRot;
 		});
@@ -346,20 +350,60 @@
 		console.log(bestRotations);
 	}
 
+	function findBestCut(_shapes, nCuts, reverseRotation=true) {
+		let shapes = _shapes;
+		if (nCuts > 1) {
+			console.error('more than 1 cut is not supported yet!');
+			return;
+		}
+
+		function getUniformlyRandomPointOnShape(shape) {
+			let segmentsLengths = [];
+			let segmentsCumulativeLengths = [];
+			let segmentsCumulativeLengthsSum = 0;
+			shape.segments.forEach((s, i) => {
+				const curLength = shape.segments.at((i + 1) % shape.segments.length).point.subtract(s.point).length;
+				segmentsLengths.push(curLength);
+				segmentsCumulativeLengthsSum += curLength;
+				segmentsCumulativeLengths.push(segmentsCumulativeLengthsSum);
+			});
+			// Get random point along entire perimeter
+			let selectedRandomLength = Math.random() * segmentsCumulativeLengthsSum;
+			let edgeIndex = segmentsCumulativeLengths.findIndex(e => e > selectedRandomLength);
+			// Get t as a parameter on the corresponding to selectedRandomLength edge
+			let t = (selectedRandomLength - (edgeIndex ? segmentsCumulativeLengths[edgeIndex - 1] : 0)) / segmentsLengths[edgeIndex]; // t \in [0, 1]
+			// Calculate point from the parameter t
+			let point = shape.segments[edgeIndex].point.add(shape.segments.at((edgeIndex + 1) % shape.segments.length).point.subtract(shape.segments[edgeIndex].point).multiply(t));
+			return point;
+		}
+
+		let results = shapes.map(shape => {
+			// 1. Find point on shape's perimeter
+			const startPoint = getUniformlyRandomPointOnShape(shape);
+			const angle = Math.random() * 360;
+			let cutLine = new Path({
+				segments: [startPoint, startPoint.add(new Point({length: 1, angle: angle}))]
+			});
+			let subShapes = cutShapeWithLine(shape, cutLine);
+			console.log(subShapes);
+		});
+	}
+
 	function onMouseWheel(evt) {
 		// console.log(evt);
-		const mousePoint = new Point(evt.x, evt.y);
+		const mousePoint = project.activeLayer.matrix.inverseTransform(new Point(evt.x, evt.y));
 		let mWheelOverloaded = false;
 		if (appMode == APPMODE.CREATE_SHAPES) {
 			if (moveShapes) {
 				if (evt.altKey) {
 					mWheelOverloaded = true;
-					let sShape = moveShapesGetSelectedShape();
+					let sShape = getSelectedShape();
 					if (sShape) {
 						if (evt.shiftKey) {
 							sShape.rotate(SHAPE_ROTATE_SPEED * Math.sign(evt.deltaY), mousePoint);
 						} else {
-							sShape.rotate(SHAPE_ROTATE_SPEED * Math.sign(evt.deltaY));
+							rotateShape(sShape, SHAPE_ROTATE_SPEED * Math.sign(evt.deltaY));
+							// sShape.rotate(, sShape.bounds.center);
 						}
 					}
 				}
@@ -498,8 +542,15 @@
 				}
 				case KEYBOARD.R: {
 					if (moveShapes) {
+						let selectedShapes = getSelectedShapes();
+						if (!selectedShapes.length) {
+							selectedShapes = shapes;
+						}
 						if (evt.modifiers.alt) {
-							resetSelectedShapeRotation();
+							resetShapesRotation(selectedShapes);
+						} else {
+							resetShapesRotation(selectedShapes);
+							resetShapesPosition(selectedShapes);
 						}
 					}
 					break;
@@ -512,7 +563,15 @@
 				}
 				case KEYBOARD.Q: {
 					if (shapes.length) {
-						findSmallestBBOX(shapes, false);
+						cancelCurrentShapeCreation();
+						findSmallestBBOX(getSelectedShapes(), false);
+					}
+					break;
+				}
+				case KEYBOARD.W: {
+					if (shapes.length) {
+						cancelCurrentShapeCreation();
+						findBestCut(getSelectedShapes(), 1, false);
 					}
 					break;
 				}

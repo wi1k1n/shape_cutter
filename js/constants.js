@@ -9,6 +9,7 @@ const IMG_PLACEHOLDER = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAOEAAADhC
 const IMG_PASTE_MIME_TYPES = ['image/png', 'image/jpeg', 'image/bmp'];
 
 const SCALE_MULTIPLIER = 1.1;
+const CLEPS = 1e-5;
 
 const MOUSE = {
     LEFT: 1,
@@ -25,6 +26,7 @@ const KEYBOARD = {
     M: 'KeyM',
     G: 'KeyG',
     Q: 'KeyQ',
+    W: 'KeyW',
     SPACE: 'Space',
     ESCAPE: 'Escape',
     DELETE: 'Delete',
